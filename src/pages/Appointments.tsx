@@ -21,6 +21,7 @@ const Appointments = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [whatsappEnabled, setWhatsappEnabled] = useState(true);
   const [smsEnabled, setSmsEnabled] = useState(true);
+  const [scheduleReminder, setScheduleReminder] = useState(true);
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
@@ -98,19 +99,38 @@ const Appointments = () => {
               day: 'numeric' 
             }),
             time: selectedTime,
-            phone: formData.phone
+            phone: formData.phone,
+            appointmentId: appointmentId.slice(-6), // Add appointment ID to the notification
+            messageType: 'confirmation' as const
           };
 
           const notificationResult = await sendAppointmentNotification(
             notificationData, 
             whatsappEnabled, 
-            smsEnabled
+            smsEnabled,
+            scheduleReminder
           );
 
           if (notificationResult.success) {
+            let confirmationMessage = `Your appointment has been confirmed (ID: ${appointmentId.slice(-6)}).`;
+            
+            // Build notification message
+            if (whatsappEnabled && notificationResult.whatsapp?.success) {
+              confirmationMessage += ' Confirmation sent via WhatsApp';
+              if (smsEnabled && notificationResult.sms?.success) confirmationMessage += ' and SMS';
+              confirmationMessage += '.';
+            } else if (smsEnabled && notificationResult.sms?.success) {
+              confirmationMessage += ' Confirmation sent via SMS.';
+            }
+            
+            // Add reminder info if scheduled
+            if (scheduleReminder && notificationResult.reminder?.success) {
+              confirmationMessage += ` A reminder will be sent 24 hours before your appointment.`;
+            }
+            
             toast({
               title: "Appointment Booked Successfully! 🎉",
-              description: `Your appointment has been confirmed (ID: ${appointmentId.slice(-6)}). Confirmation sent via ${whatsappEnabled && notificationResult.whatsapp?.success ? 'WhatsApp' : ''}${whatsappEnabled && smsEnabled && notificationResult.whatsapp?.success && notificationResult.sms?.success ? ' and ' : ''}${smsEnabled && notificationResult.sms?.success ? 'SMS' : ''}.`,
+              description: confirmationMessage,
             });
           } else {
             toast({
@@ -381,8 +401,10 @@ const Appointments = () => {
               <NotificationPreferences
                 whatsappEnabled={whatsappEnabled}
                 smsEnabled={smsEnabled}
+                reminderEnabled={scheduleReminder}
                 onWhatsAppChange={setWhatsappEnabled}
                 onSMSChange={setSmsEnabled}
+                onReminderChange={setScheduleReminder}
               />
               
               {/* Contact Card */}

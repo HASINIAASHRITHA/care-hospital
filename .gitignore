@@ -31,3 +31,25 @@ dist-ssr
 
 # Build files
 build/
+
+import { sendAppointmentNotification } from '@/services/whatsapp';
+// ...
+const notificationResult = await sendAppointmentNotification(
+  // appointment data
+);
+// ...
+description: `Your appointment has been confirmed (ID: ${appointmentId.slice(-6)}). Confirmation sent via ${whatsappEnabled && notificationResult.whatsapp?.success ? 'WhatsApp' : ''}${whatsappEnabled && smsEnabled && notificationResult.whatsapp?.success && notificationResult.sms?.success ? ' and ' : ''}${smsEnabled && notificationResult.sms?.success ? 'SMS' : ''}.`;
+
+export const sendWhatsAppMessage = async (appointmentData: AppointmentMessage) => {
+  // Format the message
+  // Send WhatsApp message (simulated or via Twilio)
+};
+
+export const sendSMSMessage = async (appointmentData: AppointmentMessage) => {
+  // Format SMS message
+  // Send SMS (simulated or via Twilio)
+};
+
+export const sendAppointmentNotification = async (appointmentData: AppointmentMessage, sendWhatsApp = true, sendSMS = true) => {
+  // Calls sendWhatsAppMessage and sendSMSMessage
+};
