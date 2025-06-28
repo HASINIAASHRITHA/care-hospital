@@ -1,0 +1,227 @@
+
+import React from 'react';
+import { Link } from 'react-router-dom';
+import { 
+  Phone, 
+  Mail, 
+  MapPin, 
+  Clock, 
+  Facebook, 
+  Instagram, 
+  Twitter, 
+  Youtube,
+  Heart,
+  Shield,
+  Award,
+  Users,
+  Calendar,
+  Stethoscope
+} from 'lucide-react';
+
+const Footer = () => {
+  return (
+    <footer className="bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 text-white relative overflow-hidden">
+      {/* Background Pattern */}
+      <div className="absolute inset-0 opacity-5">
+        <div className="absolute inset-0 bg-gradient-to-r from-blue-600/20 to-emerald-600/20"></div>
+        <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_50%,rgba(59,130,246,0.1)_0%,transparent_50%)]"></div>
+      </div>
+      
+      <div className="container mx-auto px-4 py-16 relative z-10">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12">
+          {/* Enhanced About Section */}
+          <div className="space-y-6">
+            <div className="flex items-center space-x-4">
+              <div className="relative">
+                <div className="w-14 h-14 bg-gradient-to-br from-blue-500 via-blue-600 to-emerald-600 rounded-2xl flex items-center justify-center shadow-2xl">
+                  <span className="text-white font-bold text-2xl">C</span>
+                </div>
+                <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full animate-pulse"></div>
+              </div>
+              <div>
+                <h3 className="text-2xl font-bold">Care Hospital</h3>
+                <p className="text-blue-300 text-sm font-medium">Excellence in Healthcare</p>
+              </div>
+            </div>
+            <p className="text-gray-300 text-sm leading-relaxed">
+              India's leading healthcare provider committed to delivering world-class medical services. 
+              With cutting-edge technology and compassionate care, we prioritize your health and wellbeing above all.
+            </p>
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2 bg-white/10 backdrop-blur-sm px-3 py-2 rounded-full">
+                <Shield className="w-4 h-4 text-blue-400" />
+                <span className="text-xs font-medium">NABH Certified</span>
+              </div>
+              <div className="flex items-center space-x-2 bg-white/10 backdrop-blur-sm px-3 py-2 rounded-full">
+                <Award className="w-4 h-4 text-emerald-400" />
+                <span className="text-xs font-medium">ISO 9001:2015</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Enhanced Quick Links */}
+          <div className="space-y-6">
+            <h4 className="text-xl font-bold text-blue-200 flex items-center space-x-2">
+              <Users className="w-5 h-5" />
+              <span>Quick Access</span>
+            </h4>
+            <div className="space-y-3">
+              {[
+                { name: 'Home', path: '/' },
+                { name: 'Our Services', path: '/services' },
+                { name: 'Expert Doctors', path: '/doctors' },
+                { name: 'Book Appointment', path: '/appointments' },
+                { name: 'Patient Portal', path: '/portal' },
+                { name: 'Contact Us', path: '/contact' }
+              ].map((link) => (
+                <Link 
+                  key={link.name}
+                  to={link.path} 
+                  className="block text-gray-300 hover:text-blue-300 transition-all duration-300 text-sm group flex items-center space-x-2"
+                >
+                  <div className="w-1.5 h-1.5 bg-blue-400 rounded-full group-hover:bg-blue-300 transition-colors duration-300"></div>
+                  <span className="group-hover:translate-x-1 transition-transform duration-300">{link.name}</span>
+                </Link>
+              ))}
+            </div>
+          </div>
+
+          {/* Enhanced Contact Info */}
+          <div className="space-y-6">
+            <h4 className="text-xl font-bold text-blue-200 flex items-center space-x-2">
+              <Phone className="w-5 h-5" />
+              <span>Contact Info</span>
+            </h4>
+            <div className="space-y-4">
+              <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10">
+                <div className="flex items-center space-x-3 mb-3">
+                  <div className="w-10 h-10 bg-red-500/20 rounded-full flex items-center justify-center">
+                    <Phone className="w-5 h-5 text-red-400" />
+                  </div>
+                  <div>
+                    <div className="text-white font-semibold">Emergency Hotline</div>
+                    <div className="text-red-300 text-sm">24/7 Available</div>
+                  </div>
+                </div>
+                <div className="text-gray-300 text-sm space-y-1">
+                  <div className="font-medium">Emergency: 102</div>
+                  <div>General: +91 11 2345 6789</div>
+                </div>
+              </div>
+              
+              <div className="space-y-3">
+                <div className="flex items-center space-x-3">
+                  <div className="w-8 h-8 bg-blue-500/20 rounded-full flex items-center justify-center">
+                    <Mail className="w-4 h-4 text-blue-400" />
+                  </div>
+                  <span className="text-gray-300 text-sm">info@carehospital.in</span>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <div className="w-8 h-8 bg-emerald-500/20 rounded-full flex items-center justify-center">
+                    <MapPin className="w-4 h-4 text-emerald-400" />
+                  </div>
+                  <span className="text-gray-300 text-sm">Sector 12, New Delhi - 110001</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Enhanced Hours & Services */}
+          <div className="space-y-6">
+            <h4 className="text-xl font-bold text-blue-200 flex items-center space-x-2">
+              <Clock className="w-5 h-5" />
+              <span>Operating Hours</span>
+            </h4>
+            <div className="space-y-4">
+              <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10">
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-300 text-sm">Emergency Ward</span>
+                    <span className="text-red-300 text-sm font-semibold bg-red-500/20 px-2 py-1 rounded-full">24/7</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-300 text-sm">OPD Services</span>
+                    <span className="text-blue-300 text-sm font-semibold">9AM - 8PM</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-300 text-sm">Laboratory</span>
+                    <span className="text-emerald-300 text-sm font-semibold">7AM - 10PM</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-300 text-sm">Pharmacy</span>
+                    <span className="text-purple-300 text-sm font-semibold">8AM - 9PM</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-gradient-to-r from-emerald-500/10 to-blue-500/10 backdrop-blur-sm rounded-xl p-4 border border-emerald-500/20">
+                <h5 className="text-sm font-bold text-emerald-200 mb-3 flex items-center space-x-2">
+                  <Heart className="w-4 h-4" />
+                  <span>Insurance Partners</span>
+                </h5>
+                <div className="text-xs text-gray-300 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span>CGHS • ECHS • ESI</span>
+                    <span className="text-emerald-300">✓</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Cashless Treatment</span>
+                    <span className="text-emerald-300">✓</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>All Major Insurance</span>
+                    <span className="text-emerald-300">✓</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Enhanced Social Media & Bottom Section */}
+        <div className="border-t border-gray-700/50 mt-12 pt-8">
+          <div className="flex flex-col lg:flex-row justify-between items-center space-y-6 lg:space-y-0">
+            <div className="flex space-x-4">
+              {[
+                { icon: Facebook, color: 'hover:bg-blue-600', label: 'Facebook' },
+                { icon: Instagram, color: 'hover:bg-pink-600', label: 'Instagram' },
+                { icon: Twitter, color: 'hover:bg-blue-400', label: 'Twitter' },
+                { icon: Youtube, color: 'hover:bg-red-600', label: 'YouTube' }
+              ].map(({ icon: Icon, color, label }) => (
+                <div 
+                  key={label}
+                  className={`w-12 h-12 bg-white/10 backdrop-blur-sm rounded-full flex items-center justify-center ${color} cursor-pointer transition-all duration-300 hover:scale-110 hover:shadow-lg border border-white/20`}
+                  title={label}
+                >
+                  <Icon className="w-5 h-5" />
+                </div>
+              ))}
+            </div>
+            
+            <div className="text-center lg:text-right">
+              <p className="text-gray-400 text-sm mb-2">
+                © 2024 Care Hospital. All rights reserved.
+              </p>
+              <div className="flex flex-wrap justify-center lg:justify-end items-center space-x-4 text-xs text-gray-500">
+                <span className="flex items-center space-x-1">
+                  <Shield className="w-3 h-3 text-blue-400" />
+                  <span>NABH Accredited</span>
+                </span>
+                <span className="flex items-center space-x-1">
+                  <Award className="w-3 h-3 text-emerald-400" />
+                  <span>ISO 9001:2015</span>
+                </span>
+                <span className="flex items-center space-x-1">
+                  <Stethoscope className="w-3 h-3 text-purple-400" />
+                  <span>JCI Certified</span>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </footer>
+  );
+};
+
+export default Footer;
