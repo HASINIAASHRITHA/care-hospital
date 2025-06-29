@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -24,7 +23,14 @@ import {
   Mail,
   Phone,
   Activity,
-  BarChart3
+  BarChart3,
+  Send,
+  Trash2,
+  UserPlus,
+  AlertTriangle,
+  UserCog,
+  CalendarClock,
+  FileText
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { 
@@ -35,12 +41,52 @@ import {
   listenToContactMessages,
   updateAppointment,
   updateContactMessageStatus,
-  AppointmentData,
   PatientData,
-  ContactMessage
+  ContactMessage,
+  updatePatient,
+  deletePatient,
+  createPatient
 } from '@/services/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { sendWhatsAppMessage } from '@/services/whatsapp';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
+import { DoctorManagement } from '@/components/admin/DoctorManagement';
+
+export interface AppointmentData {
+  id?: string;
+  patientName: string;
+  email: string;
+  phone: string;
+  doctor: string;
+  department: string;
+  date: string;
+  time: string;
+  status: string;
+  createdAt?: any;
+  whatsappSent?: boolean;
+  lastCommunication?: string;
+}
 
 const Admin = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -49,6 +95,26 @@ const Admin = () => {
   const [userPatients, setUserPatients] = useState<PatientData[]>([]);
   const [loginCredentials, setLoginCredentials] = useState({ email: '', password: '' });
   const [isLoading, setIsLoading] = useState(false);
+  const [sendingWhatsApp, setSendingWhatsApp] = useState<{[key: string]: boolean}>({});
+  
+  // Patient management state
+  const [patientDialogOpen, setPatientDialogOpen] = useState(false);
+  const [patientViewOpen, setPatientViewOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [currentPatient, setCurrentPatient] = useState<PatientData | null>(null);
+  const [isNewPatient, setIsNewPatient] = useState(false);
+  const [isSubmittingPatient, setIsSubmittingPatient] = useState(false);
+  const [patientFormData, setPatientFormData] = useState<Partial<PatientData>>({
+    name: '',
+    email: '',
+    phone: '',
+    age: undefined,
+    gender: '',
+    address: '',
+    emergencyContact: '',
+    medicalHistory: '',
+    status: 'active'
+  });
   
   const { user, isAdmin, loading } = useAuth();
   const { toast } = useToast();
@@ -164,6 +230,56 @@ const Admin = () => {
     }
   };
 
+  const handleSendWhatsAppMessage = async (appointment: AppointmentData) => {
+    if (!appointment.id || !appointment.phone) return;
+    
+    // Set loading state for this specific appointment
+    setSendingWhatsApp(prev => ({ ...prev, [appointment.id!]: true }));
+    
+    try {
+      // Format message data from appointment
+      const messageData = {
+        patientName: appointment.patientName,
+        doctorName: appointment.doctor,
+        department: appointment.department,
+        date: appointment.date,
+        time: appointment.time,
+        phone: appointment.phone,
+        appointmentId: appointment.id,
+        messageType: 'confirmation' as const
+      };
+      
+      // Send the WhatsApp message
+      const result = await sendWhatsAppMessage(messageData);
+      
+      if (result.success) {
+        toast({
+          title: "WhatsApp Sent",
+          description: `Message successfully sent to ${appointment.patientName}`,
+          className: "bg-green-50 border-green-200"
+        });
+        
+        // Update appointment to note that WhatsApp was sent
+        await updateAppointment(appointment.id, { 
+          whatsappSent: true, 
+          lastCommunication: new Date().toISOString()
+        }, user.uid);
+      } else {
+        throw new Error("Failed to send WhatsApp message");
+      }
+    } catch (error) {
+      console.error('WhatsApp sending error:', error);
+      toast({
+        title: "Message Failed",
+        description: "Could not send WhatsApp message. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      // Clear loading state
+      setSendingWhatsApp(prev => ({ ...prev, [appointment.id!]: false }));
+    }
+  };
+  
   const getStatusBadge = (status: string) => {
     const statusColors = {
       pending: 'bg-amber-50 text-amber-800 border-amber-200',
@@ -270,472 +386,663 @@ const Admin = () => {
     );
   }
 
-  // Dashboard stats
-  const dashboardStats = [
-    {
-      title: 'Total Appointments',
-      value: userAppointments.length,
-      icon: Calendar,
-      color: 'from-blue-500 to-blue-600',
-      change: `+${userAppointments.filter(apt => 
-        new Date(apt.createdAt?.seconds * 1000).toDateString() === new Date().toDateString()
-      ).length} today`
-    },
-    {
-      title: 'Patient Records',
-      value: userPatients.length,
-      icon: Users,
-      color: 'from-emerald-500 to-emerald-600',
-      change: `+${userPatients.filter(patient => 
-        patient.status === 'active'
-      ).length} active`
-    },
-    {
-      title: 'Pending Messages',
-      value: userContacts.filter(msg => msg.status === 'new').length,
-      icon: MessageSquare,
-      color: 'from-purple-500 to-purple-600',
-      change: `${userContacts.length} total`
-    },
-    {
-      title: 'Today\'s Activity',
-      value: userAppointments.filter(apt => 
-        new Date(apt.date).toDateString() === new Date().toDateString()
-      ).length,
-      icon: Activity,
-      color: 'from-orange-500 to-orange-600',
-      change: `${userAppointments.filter(apt => apt.status === 'confirmed').length} confirmed`
+  // Dashboard stats initialized
+  const filteredData = {
+    appointments: userAppointments.filter(appointment =>
+      appointment.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      appointment.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      appointment.department.toLowerCase().includes(searchTerm.toLowerCase())
+    ),
+    contacts: userContacts.filter(contact =>
+      contact.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      contact.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      contact.subject.toLowerCase().includes(searchTerm.toLowerCase())
+    ),
+    patients: userPatients.filter(patient =>
+      patient.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      patient.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      patient.phone.toLowerCase().includes(searchTerm.toLowerCase())
+    )
+  };
+
+  const openNewPatientDialog = () => {
+    setPatientFormData({
+      name: '',
+      email: '',
+      phone: '',
+      age: undefined,
+      gender: '',
+      address: '',
+      emergencyContact: '',
+      medicalHistory: '',
+      status: 'active'
+    });
+    setIsNewPatient(true);
+    setPatientDialogOpen(true);
+  };
+
+  const openEditPatientDialog = (patient: PatientData) => {
+    setPatientFormData({...patient});
+    setCurrentPatient(patient);
+    setIsNewPatient(false);
+    setPatientDialogOpen(true);
+  };
+
+  const openViewPatientDialog = (patient: PatientData) => {
+    setCurrentPatient(patient);
+    setPatientViewOpen(true);
+  };
+
+  const openDeleteConfirmation = (patient: PatientData) => {
+    setCurrentPatient(patient);
+    setDeleteDialogOpen(true);
+  };
+
+  const handlePatientFormSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    
+    if (!patientFormData.name || !patientFormData.phone) {
+      toast({
+        title: "Missing Required Fields",
+        description: "Name and phone number are required",
+        variant: "destructive"
+      });
+      return;
     }
-  ];
 
-  const filteredAppointments = userAppointments.filter(appointment =>
-    appointment.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    appointment.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    appointment.department.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+    setIsSubmittingPatient(true);
 
-  const filteredContacts = userContacts.filter(contact =>
-    contact.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    contact.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    contact.subject.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+    try {
+      if (isNewPatient) {
+        // Create new patient
+        const patientData: Omit<PatientData, 'id' | 'createdAt' | 'updatedAt'> = {
+          ...patientFormData as any,
+          status: patientFormData.status || 'active',
+          userId: user.uid
+        };
+        
+        const patientId = await createPatient(patientData);
+        
+        toast({
+          title: "Patient Created",
+          description: `Patient ${patientFormData.name} has been added successfully`,
+          className: "bg-green-50 border-green-200"
+        });
+      } else if (currentPatient?.id) {
+        // Update existing patient
+        await updatePatient(
+          currentPatient.id, 
+          patientFormData as Partial<PatientData>, 
+          user.uid
+        );
+        
+        toast({
+          title: "Patient Updated",
+          description: `Patient ${patientFormData.name} has been updated successfully`,
+          className: "bg-blue-50 border-blue-200"
+        });
+      }
+      
+      setPatientDialogOpen(false);
+    } catch (error) {
+      console.error("Error managing patient:", error);
+      toast({
+        title: "Operation Failed",
+        description: "There was an error processing your request",
+        variant: "destructive"
+      });
+    } finally {
+      setIsSubmittingPatient(false);
+    }
+  };
 
-  const filteredPatients = userPatients.filter(patient =>
-    patient.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    patient.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    patient.phone.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const handleDeletePatient = async () => {
+    if (!user || !currentPatient?.id) return;
+    
+    try {
+      await deletePatient(currentPatient.id, user.uid);
+      
+      toast({
+        title: "Patient Deleted",
+        description: `${currentPatient.name} has been removed from the system`,
+        className: "bg-gray-50 border-gray-200"
+      });
+      
+      setDeleteDialogOpen(false);
+    } catch (error) {
+      console.error("Error deleting patient:", error);
+      toast({
+        title: "Delete Failed",
+        description: "There was an error deleting this patient",
+        variant: "destructive"
+      });
+    }
+  };
 
+  // Main dashboard UI for authenticated admin users
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50">
-      {/* Header */}
-      <div className="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-gray-100 shadow-sm">
-        <div className="max-w-7xl mx-auto px-6 lg:px-8">
-          <div className="flex justify-between items-center py-6">
-            <div className="flex items-center space-x-4">
-              <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-purple-600 rounded-xl flex items-center justify-center shadow-lg">
-                <Shield className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
-                  Care Hospital Admin
-                </h1>
-                <p className="text-sm text-gray-600 flex items-center space-x-2">
-                  <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                  <span>Live Dashboard • {user.email}</span>
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center space-x-4">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <Input
-                  placeholder="Search across all records..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 w-80 border-gray-200 focus:border-blue-500 rounded-xl bg-white/80 backdrop-blur-sm"
-                />
-              </div>
-              <Button variant="outline" className="border-gray-200 hover:bg-white/80 rounded-xl backdrop-blur-sm">
-                <Filter className="w-4 h-4 mr-2" />
-                Filters
-              </Button>
-              <Button 
-                variant="outline" 
-                onClick={handleLogout}
-                className="border-red-200 hover:bg-red-50 rounded-xl text-red-600 hover:text-red-700 backdrop-blur-sm"
-              >
-                <LogOut className="w-4 h-4 mr-2" />
-                Logout
-              </Button>
-            </div>
-          </div>
-        </div>
+    <div className="container mx-auto px-4 py-10 mt-20">
+      <div className="flex justify-between items-center mb-8">
+        <h1 className="text-3xl font-bold">Admin Dashboard</h1>
+        <Button onClick={handleLogout} variant="outline" className="flex items-center gap-2">
+          <LogOut className="h-4 w-4" />
+          <span>Logout</span>
+        </Button>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 lg:px-8 py-8 space-y-8">
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {dashboardStats.map((stat, index) => (
-            <Card key={index} className="bg-white/80 backdrop-blur-sm border-0 shadow-xl hover:shadow-2xl transition-all duration-500 rounded-2xl overflow-hidden group">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1 space-y-2">
-                    <p className="text-sm font-medium text-gray-600">{stat.title}</p>
-                    <p className="text-3xl font-bold text-gray-900 group-hover:scale-110 transition-transform duration-300">{stat.value}</p>
-                    <p className="text-xs text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full">{stat.change}</p>
-                  </div>
-                  <div className={`p-4 rounded-2xl bg-gradient-to-r ${stat.color} shadow-lg group-hover:scale-110 transition-transform duration-300`}>
-                    <stat.icon className="w-6 h-6 text-white" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+      <div className="mb-8">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />
+          <Input
+            type="search"
+            placeholder="Search patients, appointments, messages..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-10 pr-4 py-2 h-12 rounded-xl bg-white border border-gray-200"
+          />
         </div>
-
-        {/* Content Tabs */}
-        <Tabs defaultValue="appointments" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4 bg-white/80 backdrop-blur-sm shadow-xl rounded-2xl p-2 border-0">
-            <TabsTrigger 
-              value="appointments" 
-              className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-blue-600 data-[state=active]:text-white data-[state=active]:shadow-lg rounded-xl transition-all duration-300 font-medium"
-            >
-              <Calendar className="w-4 h-4 mr-2" />
-              Appointments ({userAppointments.length})
-            </TabsTrigger>
-            <TabsTrigger 
-              value="patients" 
-              className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-500 data-[state=active]:to-emerald-600 data-[state=active]:text-white data-[state=active]:shadow-lg rounded-xl transition-all duration-300 font-medium"
-            >
-              <Users className="w-4 h-4 mr-2" />
-              Patients ({userPatients.length})
-            </TabsTrigger>
-            <TabsTrigger 
-              value="messages" 
-              className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:to-purple-600 data-[state=active]:text-white data-[state=active]:shadow-lg rounded-xl transition-all duration-300 font-medium"
-            >
-              <MessageSquare className="w-4 h-4 mr-2" />
-              Messages ({userContacts.length})
-            </TabsTrigger>
-            <TabsTrigger 
-              value="analytics" 
-              className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-orange-500 data-[state=active]:to-orange-600 data-[state=active]:text-white data-[state=active]:shadow-lg rounded-xl transition-all duration-300 font-medium"
-            >
-              <BarChart3 className="w-4 h-4 mr-2" />
-              Analytics
-            </TabsTrigger>
-          </TabsList>
-
-          {/* Appointments Tab */}
-          <TabsContent value="appointments">
-            <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-xl rounded-2xl overflow-hidden">
-              <CardHeader className="border-b border-gray-100 bg-gradient-to-r from-blue-50/80 to-indigo-50/80 backdrop-blur-sm">
-                <div className="flex justify-between items-center">
-                  <CardTitle className="text-xl font-bold text-gray-900 flex items-center space-x-2">
-                    <Calendar className="w-5 h-5 text-blue-600" />
-                    <span>Appointment Management</span>
-                  </CardTitle>
-                  <Button className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white shadow-lg rounded-xl">
-                    <Download className="w-4 h-4 mr-2" />
-                    Export Data
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="p-0">
-                {filteredAppointments.length === 0 ? (
-                  <div className="text-center py-20">
-                    <Calendar className="w-16 h-16 text-blue-300 mx-auto mb-4" />
-                    <h3 className="text-xl font-semibold text-gray-900 mb-2">No Appointments</h3>
-                    <p className="text-gray-500">Appointments will appear here when patients book through the website</p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="bg-gradient-to-r from-gray-50 to-gray-100">
-                          <TableHead className="font-semibold text-gray-900">Patient Details</TableHead>
-                          <TableHead className="font-semibold text-gray-900">Department & Doctor</TableHead>
-                          <TableHead className="font-semibold text-gray-900">Schedule</TableHead>
-                          <TableHead className="font-semibold text-gray-900">Status</TableHead>
-                          <TableHead className="font-semibold text-gray-900">Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {filteredAppointments.map((appointment) => (
-                          <TableRow key={appointment.id} className="hover:bg-blue-50/50 transition-colors duration-200">
-                            <TableCell>
-                              <div className="space-y-1">
-                                <p className="font-semibold text-gray-900">{appointment.patientName}</p>
-                                <div className="flex items-center space-x-2 text-sm text-gray-500">
-                                  <Mail className="w-3 h-3" />
-                                  <span>{appointment.email}</span>
-                                </div>
-                                <div className="flex items-center space-x-2 text-sm text-gray-500">
-                                  <Phone className="w-3 h-3" />
-                                  <span>{appointment.phone}</span>
-                                </div>
+      </div>
+      
+      <Tabs defaultValue="doctors" className="space-y-6">
+        <TabsList className="grid grid-cols-4 md:grid-cols-4 lg:grid-cols-4">
+          <TabsTrigger value="doctors" className="flex items-center gap-2">
+            <UserCog className="h-4 w-4" />
+            <span>Doctors</span>
+          </TabsTrigger>
+          <TabsTrigger value="patients" className="flex items-center gap-2">
+            <Users className="h-4 w-4" />
+            <span>Patients</span>
+          </TabsTrigger>
+          <TabsTrigger value="appointments" className="flex items-center gap-2">
+            <CalendarClock className="h-4 w-4" />
+            <span>Appointments</span>
+          </TabsTrigger>
+          <TabsTrigger value="messages" className="flex items-center gap-2">
+            <MessageSquare className="h-4 w-4" />
+            <span>Messages</span>
+          </TabsTrigger>
+        </TabsList>
+        
+        {/* Doctors Tab */}
+        <TabsContent value="doctors" className="space-y-4">
+          <DoctorManagement />
+        </TabsContent>
+        
+        {/* Patients Tab */}
+        <TabsContent value="patients" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Patient Management</CardTitle>
+              <Button className="bg-gradient-to-r from-blue-600 to-emerald-600" onClick={openNewPatientDialog}>
+                <UserPlus className="mr-2 h-4 w-4" /> Add Patient
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Contact</TableHead>
+                      <TableHead>Age/Gender</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredData.patients.length > 0 ? (
+                      filteredData.patients.map((patient) => (
+                        <TableRow key={patient.id}>
+                          <TableCell className="font-medium">{patient.name}</TableCell>
+                          <TableCell>
+                            <div className="flex flex-col">
+                              <div className="flex items-center">
+                                <Mail className="h-3 w-3 mr-1 text-gray-500" />
+                                <span className="text-sm">{patient.email}</span>
                               </div>
-                            </TableCell>
-                            <TableCell>
-                              <div className="space-y-1">
-                                <p className="font-semibold text-gray-900">{appointment.department}</p>
-                                <p className="text-sm text-blue-600 bg-blue-50 px-2 py-1 rounded-full inline-block">{appointment.doctor}</p>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <div className="space-y-1">
-                                <p className="font-semibold text-gray-900">{appointment.date}</p>
-                                <p className="text-sm text-gray-600 bg-gray-100 px-2 py-1 rounded-full inline-block">{appointment.time}</p>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <Badge className={`${getStatusBadge(appointment.status)} border font-medium`}>
-                                {appointment.status.charAt(0).toUpperCase() + appointment.status.slice(1)}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex space-x-1">
-                                {appointment.status === 'pending' && (
-                                  <Button 
-                                    variant="outline" 
-                                    size="sm"
-                                    onClick={() => handleUpdateAppointmentStatus(appointment.id!, 'confirmed')}
-                                    className="text-green-600 border-green-200 hover:bg-green-50 rounded-lg"
-                                  >
-                                    <Check className="w-4 h-4" />
-                                  </Button>
-                                )}
-                                {appointment.status === 'confirmed' && (
-                                  <Button 
-                                    variant="outline" 
-                                    size="sm"
-                                    onClick={() => handleUpdateAppointmentStatus(appointment.id!, 'completed')}
-                                    className="text-blue-600 border-blue-200 hover:bg-blue-50 rounded-lg"
-                                  >
-                                    <Clock className="w-4 h-4" />
-                                  </Button>
-                                )}
-                                <Button 
-                                  variant="outline" 
-                                  size="sm"
-                                  onClick={() => handleUpdateAppointmentStatus(appointment.id!, 'cancelled')}
-                                  className="text-red-600 border-red-200 hover:bg-red-50 rounded-lg"
-                                >
-                                  <X className="w-4 h-4" />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Messages Tab */}
-          <TabsContent value="messages">
-            <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-xl rounded-2xl overflow-hidden">
-              <CardHeader className="border-b border-gray-100 bg-gradient-to-r from-purple-50/80 to-indigo-50/80 backdrop-blur-sm">
-                <CardTitle className="text-xl font-bold text-gray-900 flex items-center space-x-2">
-                  <MessageSquare className="w-5 h-5 text-purple-600" />
-                  <span>Contact Messages</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-6">
-                {filteredContacts.length === 0 ? (
-                  <div className="text-center py-20">
-                    <MessageSquare className="w-16 h-16 text-purple-300 mx-auto mb-4" />
-                    <h3 className="text-xl font-semibold text-gray-900 mb-2">No Messages</h3>
-                    <p className="text-gray-500">Contact form submissions will appear here</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {filteredContacts.map((contact) => (
-                      <Card key={contact.id} className="border border-gray-200 hover:shadow-lg transition-all duration-300 rounded-xl overflow-hidden">
-                        <CardContent className="p-6">
-                          <div className="flex justify-between items-start mb-4">
-                            <div className="flex-1 space-y-3">
-                              <div className="flex items-center space-x-3">
-                                <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-purple-600 rounded-full flex items-center justify-center">
-                                  <span className="text-white font-semibold text-sm">
-                                    {contact.name.charAt(0).toUpperCase()}
-                                  </span>
-                                </div>
-                                <div>
-                                  <h4 className="font-semibold text-gray-900">{contact.name}</h4>
-                                  <Badge className={`${getStatusBadge(contact.status)} border text-xs mt-1`}>
-                                    {contact.status.charAt(0).toUpperCase() + contact.status.slice(1)}
-                                  </Badge>
-                                </div>
-                              </div>
-                              <p className="text-sm font-medium text-gray-700 bg-gray-50 px-3 py-2 rounded-lg">{contact.subject}</p>
-                              <div className="flex items-center space-x-6 text-sm text-gray-500">
-                                <div className="flex items-center space-x-2">
-                                  <Mail className="w-4 h-4" />
-                                  <span>{contact.email}</span>
-                                </div>
-                                <div className="flex items-center space-x-2">
-                                  <Phone className="w-4 h-4" />
-                                  <span>{contact.phone}</span>
-                                </div>
+                              <div className="flex items-center mt-1">
+                                <Phone className="h-3 w-3 mr-1 text-gray-500" />
+                                <span className="text-sm">{patient.phone}</span>
                               </div>
                             </div>
-                            {contact.status === 'new' && (
-                              <Button 
-                                variant="outline" 
-                                size="sm"
-                                onClick={() => handleMarkMessageAsRead(contact.id!)}
-                                className="text-blue-600 border-blue-200 hover:bg-blue-50 rounded-lg"
-                              >
-                                <Eye className="w-4 h-4 mr-1" />
-                                Mark Read
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center space-x-1">
+                              <span>{patient.age}</span>
+                              <span className="text-gray-500">/</span>
+                              <span>{patient.gender}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={getStatusBadge(patient.status)}>
+                              {patient.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex space-x-2">
+                              <Button size="sm" variant="ghost" onClick={() => openViewPatientDialog(patient)}>
+                                <Eye className="h-3 w-3" />
                               </Button>
-                            )}
-                          </div>
-                          <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl p-4">
-                            <p className="text-gray-700 text-sm leading-relaxed">
-                              {contact.message}
-                            </p>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Patients Tab */}
-          <TabsContent value="patients">
-            <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-xl rounded-2xl overflow-hidden">
-              <CardHeader className="border-b border-gray-100 bg-gradient-to-r from-emerald-50/80 to-green-50/80 backdrop-blur-sm">
-                <CardTitle className="text-xl font-bold text-gray-900 flex items-center space-x-2">
-                  <Users className="w-5 h-5 text-emerald-600" />
-                  <span>Patient Records</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-6">
-                {filteredPatients.length === 0 ? (
-                  <div className="text-center py-20">
-                    <Users className="w-16 h-16 text-emerald-300 mx-auto mb-4" />
-                    <h3 className="text-xl font-semibold text-gray-900 mb-2">No Patient Records</h3>
-                    <p className="text-gray-500">Patient registrations will appear here</p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="bg-gradient-to-r from-gray-50 to-gray-100">
-                          <TableHead className="font-semibold text-gray-900">Patient Information</TableHead>
-                          <TableHead className="font-semibold text-gray-900">Contact Details</TableHead>
-                          <TableHead className="font-semibold text-gray-900">Medical Info</TableHead>
-                          <TableHead className="font-semibold text-gray-900">Status</TableHead>
-                          <TableHead className="font-semibold text-gray-900">Actions</TableHead>
+                              <Button size="sm" variant="ghost" onClick={() => openEditPatientDialog(patient)}>
+                                <Edit className="h-3 w-3" />
+                              </Button>
+                              <Button size="sm" variant="ghost" className="text-red-500" onClick={() => openDeleteConfirmation(patient)}>
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </TableCell>
                         </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {filteredPatients.map((patient) => (
-                          <TableRow key={patient.id} className="hover:bg-emerald-50/50 transition-colors duration-200">
-                            <TableCell>
-                              <div className="flex items-center space-x-3">
-                                <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-full flex items-center justify-center">
-                                  <span className="text-white font-semibold text-sm">
-                                    {patient.name.charAt(0).toUpperCase()}
-                                  </span>
-                                </div>
-                                <div>
-                                  <p className="font-semibold text-gray-900">{patient.name}</p>
-                                  <p className="text-sm text-gray-500">{patient.age} years, {patient.gender}</p>
-                                </div>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <div className="space-y-2">
-                                <div className="flex items-center space-x-2 text-sm">
-                                  <Mail className="w-3 h-3 text-gray-400" />
-                                  <span className="text-gray-600">{patient.email}</span>
-                                </div>
-                                <div className="flex items-center space-x-2 text-sm">
-                                  <Phone className="w-3 h-3 text-gray-400" />
-                                  <span className="text-gray-600">{patient.phone}</span>
-                                </div>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <p className="text-sm text-gray-600 max-w-32 truncate" title={patient.medicalHistory}>
-                                {patient.medicalHistory || 'No history'}
-                              </p>
-                            </TableCell>
-                            <TableCell>
-                              <Badge className={`${getStatusBadge(patient.status)} border font-medium`}>
-                                {patient.status.charAt(0).toUpperCase() + patient.status.slice(1)}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex space-x-2">
-                                <Button variant="outline" size="sm" className="rounded-lg hover:bg-blue-50">
-                                  <Eye className="w-4 h-4" />
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center py-4 text-gray-500">
+                          {searchTerm ? "No patients match your search criteria" : "No patients found in the system"}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        
+        {/* Appointments Tab */}
+        <TabsContent value="appointments" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Appointment Management</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Patient</TableHead>
+                      <TableHead>Doctor</TableHead>
+                      <TableHead>Department</TableHead>
+                      <TableHead>Date & Time</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredData.appointments.length > 0 ? (
+                      filteredData.appointments.map((appointment) => (
+                        <TableRow key={appointment.id}>
+                          <TableCell>
+                            <div className="font-medium">{appointment.patientName}</div>
+                            <div className="text-xs text-gray-500">{appointment.email}</div>
+                            <div className="text-xs text-gray-500">{appointment.phone}</div>
+                          </TableCell>
+                          <TableCell>{appointment.doctor}</TableCell>
+                          <TableCell>{appointment.department}</TableCell>
+                          <TableCell>
+                            <div className="font-medium">{appointment.date}</div>
+                            <div className="text-xs text-gray-500">{appointment.time}</div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={getStatusBadge(appointment.status)}>
+                              {appointment.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-col space-y-2">
+                              {appointment.status === 'pending' && (
+                                <Button 
+                                  size="sm" 
+                                  variant="outline" 
+                                  className="w-full text-xs"
+                                  onClick={() => appointment.id && handleUpdateAppointmentStatus(appointment.id, 'confirmed')}
+                                >
+                                  <Check className="h-3 w-3 mr-1" /> Confirm
                                 </Button>
-                                <Button variant="outline" size="sm" className="rounded-lg hover:bg-emerald-50">
-                                  <Edit className="w-4 h-4" />
+                              )}
+                              
+                              {(appointment.status === 'confirmed' || appointment.status === 'pending') && (
+                                <Button 
+                                  size="sm" 
+                                  variant="outline" 
+                                  className="w-full text-xs"
+                                  onClick={() => appointment.id && handleUpdateAppointmentStatus(appointment.id, 'completed')}
+                                >
+                                  <Clock className="h-3 w-3 mr-1" /> Complete
                                 </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Analytics Tab */}
-          <TabsContent value="analytics">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-xl rounded-2xl overflow-hidden">
-                <CardHeader className="bg-gradient-to-r from-orange-50/80 to-red-50/80 backdrop-blur-sm">
-                  <CardTitle className="text-lg font-bold text-gray-900 flex items-center space-x-2">
-                    <TrendingUp className="w-5 h-5 text-orange-600" />
-                    <span>Appointment Trends</span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-6">
-                  <div className="text-center">
-                    <div className="text-4xl font-bold text-gray-900 mb-2">
-                      {userAppointments.length}
-                    </div>
-                    <p className="text-gray-600">Total Appointments</p>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-xl rounded-2xl overflow-hidden">
-                <CardHeader className="bg-gradient-to-r from-green-50/80 to-emerald-50/80 backdrop-blur-sm">
-                  <CardTitle className="text-lg font-bold text-gray-900 flex items-center space-x-2">
-                    <BarChart3 className="w-5 h-5 text-emerald-600" />
-                    <span>Quick Stats</span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-6">
-                  <div className="text-center">
-                    <div className="text-4xl font-bold text-gray-900 mb-2">
-                      {userContacts.length}
-                    </div>
-                    <p className="text-gray-600">Total Messages</p>
-                  </div>
-                </CardContent>
-              </Card>
+                              )}
+                              
+                              {appointment.status !== 'cancelled' && appointment.status !== 'completed' && (
+                                <Button 
+                                  size="sm" 
+                                  variant="outline" 
+                                  className="w-full text-xs text-red-500"
+                                  onClick={() => appointment.id && handleUpdateAppointmentStatus(appointment.id, 'cancelled')}
+                                >
+                                  <X className="h-3 w-3 mr-1" /> Cancel
+                                </Button>
+                              )}
+                              
+                              {appointment.phone && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className={`w-full text-xs ${appointment.whatsappSent ? 'text-green-600' : 'text-blue-600'}`}
+                                  onClick={() => handleSendWhatsAppMessage(appointment)}
+                                  disabled={sendingWhatsApp[appointment.id || ''] || false}
+                                >
+                                  {sendingWhatsApp[appointment.id || ''] ? (
+                                    <>
+                                      <div className="h-3 w-3 border-t-2 border-blue-600 rounded-full animate-spin mr-2"></div>
+                                      Sending...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Send className="h-3 w-3 mr-1" /> 
+                                      {appointment.whatsappSent ? 'Resend WhatsApp' : 'Send WhatsApp'}
+                                    </>
+                                  )}
+                                </Button>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-4 text-gray-500">
+                          {searchTerm ? "No appointments match your search criteria" : "No appointments found in the system"}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        
+        {/* Messages Tab */}
+        <TabsContent value="messages" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Contact Messages</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Sender</TableHead>
+                      <TableHead>Subject</TableHead>
+                      <TableHead>Message</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredData.contacts.length > 0 ? (
+                      filteredData.contacts.map((message) => (
+                        <TableRow key={message.id} className={message.status === 'new' ? 'bg-blue-50' : ''}>
+                          <TableCell>
+                            <div className="font-medium">{message.name}</div>
+                            <div className="text-xs text-gray-500">{message.email}</div>
+                          </TableCell>
+                          <TableCell>{message.subject}</TableCell>
+                          <TableCell className="max-w-xs">
+                            <div className="truncate">{message.message}</div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-xs text-gray-500">
+                              {message.createdAt?.toDate 
+                                ? message.createdAt.toDate().toLocaleString() 
+                                : "Unknown date"}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={getStatusBadge(message.status)}>
+                              {message.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex space-x-1">
+                              <Button size="sm" variant="ghost" onClick={() => message.id && handleMarkMessageAsRead(message.id)}>
+                                <Check className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-4 text-gray-500">
+                          {searchTerm ? "No messages match your search criteria" : "No contact messages found in the system"}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+      
+      {/* Patient View Dialog */}
+      <Dialog open={patientViewOpen} onOpenChange={setPatientViewOpen}>
+        <DialogContent className="max-w-2xl overflow-y-auto max-h-[90vh]">
+          <DialogHeader>
+            <DialogTitle>Patient Details</DialogTitle>
+          </DialogHeader>
+          {currentPatient && (
+            <div className="grid gap-6">
+              <div className="flex items-center">
+                <div className="h-16 w-16 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 text-xl font-semibold">
+                  {currentPatient.name.charAt(0)}
+                </div>
+                <div className="ml-4">
+                  <h3 className="text-xl font-semibold">{currentPatient.name}</h3>
+                  <Badge className={getStatusBadge(currentPatient.status)}>{currentPatient.status}</Badge>
+                </div>
+              </div>
+              
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-1">
+                  <p className="text-sm text-gray-500">Email</p>
+                  <p>{currentPatient.email || 'Not provided'}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm text-gray-500">Phone</p>
+                  <p>{currentPatient.phone}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm text-gray-500">Age</p>
+                  <p>{currentPatient.age || 'Not provided'}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm text-gray-500">Gender</p>
+                  <p>{currentPatient.gender || 'Not provided'}</p>
+                </div>
+                <div className="space-y-1 md:col-span-2">
+                  <p className="text-sm text-gray-500">Address</p>
+                  <p>{currentPatient.address || 'Not provided'}</p>
+                </div>
+                <div className="space-y-1 md:col-span-2">
+                  <p className="text-sm text-gray-500">Emergency Contact</p>
+                  <p>{currentPatient.emergencyContact || 'Not provided'}</p>
+                </div>
+                <div className="space-y-1 md:col-span-2">
+                  <p className="text-sm text-gray-500">Medical History</p>
+                  <p className="whitespace-pre-line">{currentPatient.medicalHistory || 'Not provided'}</p>
+                </div>
+              </div>
             </div>
-          </TabsContent>
-        </Tabs>
-      </div>
+          )}
+        </DialogContent>
+      </Dialog>
+      
+      {/* Patient Edit/Add Dialog */}
+      <Dialog open={patientDialogOpen} onOpenChange={setPatientDialogOpen}>
+        <DialogContent className="max-w-2xl overflow-y-auto max-h-[90vh]">
+          <DialogHeader>
+            <DialogTitle>{isNewPatient ? "Add New Patient" : "Edit Patient"}</DialogTitle>
+            <DialogDescription>
+              {isNewPatient ? "Enter the details of the new patient." : "Update patient information."}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <form onSubmit={handlePatientFormSubmit} className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="name">Full Name *</Label>
+                <Input 
+                  id="name" 
+                  value={patientFormData.name || ''} 
+                  onChange={(e) => setPatientFormData({...patientFormData, name: e.target.value})}
+                  placeholder="Full Name"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="email">Email Address</Label>
+                <Input 
+                  id="email" 
+                  type="email" 
+                  value={patientFormData.email || ''} 
+                  onChange={(e) => setPatientFormData({...patientFormData, email: e.target.value})}
+                  placeholder="Email Address"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="phone">Phone Number *</Label>
+                <Input 
+                  id="phone" 
+                  value={patientFormData.phone || ''} 
+                  onChange={(e) => setPatientFormData({...patientFormData, phone: e.target.value})}
+                  placeholder="Phone Number"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="age">Age</Label>
+                <Input 
+                  id="age" 
+                  type="number"
+                  value={patientFormData.age || ''} 
+                  onChange={(e) => setPatientFormData({...patientFormData, age: parseInt(e.target.value) || undefined})}
+                  placeholder="Age"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="gender">Gender</Label>
+                <Select 
+                  value={patientFormData.gender || ''} 
+                  onValueChange={(value) => setPatientFormData({...patientFormData, gender: value})}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select gender" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="male">Male</SelectItem>
+                    <SelectItem value="female">Female</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="status">Status</Label>
+                <Select 
+                  value={patientFormData.status || 'active'} 
+                  onValueChange={(value) => setPatientFormData({...patientFormData, status: value as 'active' | 'inactive'})}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="address">Address</Label>
+                <Input 
+                  id="address" 
+                  value={patientFormData.address || ''} 
+                  onChange={(e) => setPatientFormData({...patientFormData, address: e.target.value})}
+                  placeholder="Address"
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="emergencyContact">Emergency Contact</Label>
+                <Input 
+                  id="emergencyContact" 
+                  value={patientFormData.emergencyContact || ''} 
+                  onChange={(e) => setPatientFormData({...patientFormData, emergencyContact: e.target.value})}
+                  placeholder="Emergency Contact"
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="medicalHistory">Medical History</Label>
+                <Textarea 
+                  id="medicalHistory" 
+                  value={patientFormData.medicalHistory || ''} 
+                  onChange={(e) => setPatientFormData({...patientFormData, medicalHistory: e.target.value})}
+                  placeholder="Medical history, allergies, past treatments, etc."
+                  className="min-h-[100px]"
+                />
+              </div>
+            </div>
+            
+            <DialogFooter>
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => setPatientDialogOpen(false)}
+                disabled={isSubmittingPatient}
+              >
+                Cancel
+              </Button>
+              <Button 
+                type="submit"
+                className="bg-gradient-to-r from-blue-600 to-emerald-600"
+                disabled={isSubmittingPatient}
+              >
+                {isSubmittingPatient ? (
+                  <span className="flex items-center">
+                    <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-b-transparent"></span>
+                    Saving...
+                  </span>
+                ) : (
+                  isNewPatient ? "Add Patient" : "Update Patient"
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the patient record for {currentPatient?.name}. 
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              className="bg-red-600 hover:bg-red-700"
+              onClick={handleDeletePatient}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

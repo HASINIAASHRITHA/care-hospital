@@ -35,6 +35,9 @@ const Appointments = () => {
   });
   
   const { toast } = useToast();
+  
+  // Add this ref to track if toast has been shown
+  const toastShownRef = React.useRef(false);
 
   const departments = [
     'Cardiology', 'Neurology', 'Pediatrics', 'Orthopedics', 
@@ -172,6 +175,65 @@ const Appointments = () => {
       setIsSubmitting(false);
     }
   };
+
+  // Update: Get both department and doctor from URL query parameters with fixed dependency array
+  React.useEffect(() => {
+    // Only run this effect if the toast hasn't been shown yet
+    if (toastShownRef.current) return;
+    
+    const params = new URLSearchParams(window.location.search);
+    const departmentParam = params.get('department');
+    const doctorParam = params.get('doctor');
+    
+    let updatedFormData = {...formData};
+    let showToast = false;
+    let dataChanged = false;
+    
+    if (departmentParam) {
+      // Find the closest match in our department list
+      const matchedDepartment = departments.find(dept => 
+        dept.toLowerCase().includes(departmentParam.toLowerCase()) ||
+        departmentParam.toLowerCase().includes(dept.toLowerCase())
+      );
+      
+      if (matchedDepartment && formData.department !== matchedDepartment) {
+        updatedFormData.department = matchedDepartment;
+        showToast = true;
+        dataChanged = true;
+      }
+    }
+    
+    if (doctorParam && updatedFormData.department) {
+      // Only set doctor if we have a valid department
+      const availableDoctors = doctors[updatedFormData.department as keyof typeof doctors] || [];
+      const matchedDoctor = availableDoctors.find(doctor => 
+        doctor.toLowerCase().includes(doctorParam.toLowerCase()) ||
+        doctorParam.toLowerCase().includes(doctor.toLowerCase())
+      );
+      
+      if (matchedDoctor && formData.doctor !== matchedDoctor) {
+        updatedFormData.doctor = matchedDoctor;
+        dataChanged = true;
+      }
+    }
+    
+    if (dataChanged) {
+      setFormData(updatedFormData);
+    }
+    
+    if (showToast) {
+      toast({
+        title: "Information Pre-filled",
+        description: doctorParam && updatedFormData.doctor
+          ? `We've selected ${updatedFormData.department} department with ${updatedFormData.doctor}.`
+          : `Based on your selection, we've selected the ${updatedFormData.department} department.`,
+        className: "bg-blue-50 border-blue-200"
+      });
+      
+      // Mark toast as shown to prevent future toasts
+      toastShownRef.current = true;
+    }
+  }, [departments, doctors, formData, toast]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-green-50">

@@ -1,4 +1,3 @@
-
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
@@ -25,7 +24,8 @@ export const COLLECTIONS = {
   APPOINTMENTS: 'appointments',
   HEALTH_RECORDS: 'healthRecords',
   CONTACT_MESSAGES: 'contactMessages',
-  ADMIN_LOGS: 'adminLogs'
+  ADMIN_LOGS: 'adminLogs',
+  DOCTORS: 'doctors'
 };
 
 export default app;

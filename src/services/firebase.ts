@@ -1,4 +1,3 @@
-
 import { 
   collection, 
   addDoc, 
@@ -19,7 +18,8 @@ import {
   onAuthStateChanged,
   User
 } from 'firebase/auth';
-import { db, auth, COLLECTIONS } from '@/config/firebase';
+import { db, auth, storage, COLLECTIONS } from '@/config/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 // Types
 export interface PatientData {
@@ -52,6 +52,8 @@ export interface AppointmentData {
   createdAt: any;
   updatedAt: any;
   userId?: string;
+  whatsappSent?: boolean;
+  lastCommunication?: string;
 }
 
 export interface ContactMessage {
@@ -73,6 +75,21 @@ export interface AdminLog {
   targetId: string;
   details: string;
   timestamp: any;
+}
+
+export interface Doctor {
+  id?: string;
+  name: string;
+  specialty: string;
+  experience: string;
+  rating?: number;
+  image?: string;
+  education: string;
+  location: string;
+  availableToday: boolean;
+  bio: string;
+  createdAt?: any;
+  updatedAt?: any;
 }
 
 // Authentication functions
@@ -234,6 +251,123 @@ export const updateContactMessageStatus = async (id: string, status: 'new' | 're
     console.error('Error updating message status:', error);
     throw error;
   }
+};
+
+// Enhanced Patient CRUD functions
+export const createPatient = async (patientData: Omit<PatientData, 'id' | 'createdAt' | 'updatedAt'>) => {
+  try {
+    const docRef = await addDoc(collection(db, COLLECTIONS.USERS), {
+      ...patientData,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      status: patientData.status || 'active'
+    });
+    
+    // Log admin action if adminId is provided
+    if (patientData.userId) {
+      await logAdminAction(
+        patientData.userId, 
+        'CREATE', 
+        COLLECTIONS.USERS, 
+        docRef.id, 
+        `Created new patient: ${patientData.name}`
+      );
+    }
+    
+    return docRef.id;
+  } catch (error) {
+    console.error('Error creating patient:', error);
+    throw error;
+  }
+};
+
+export const deletePatient = async (id: string, adminId: string) => {
+  try {
+    // Get patient data before deletion for logging
+    const patientDoc = await getDoc(doc(db, COLLECTIONS.USERS, id));
+    const patientData = patientDoc.data();
+    
+    await deleteDoc(doc(db, COLLECTIONS.USERS, id));
+    
+    // Log admin action
+    await logAdminAction(
+      adminId, 
+      'DELETE', 
+      COLLECTIONS.USERS, 
+      id, 
+      `Deleted patient: ${patientData?.name || id}`
+    );
+    
+    return true;
+  } catch (error) {
+    console.error('Error deleting patient:', error);
+    throw error;
+  }
+};
+
+// Doctor Services
+export const getDoctors = async () => {
+  const doctorsRef = collection(db, COLLECTIONS.DOCTORS);
+  const snapshot = await getDocs(doctorsRef);
+  return snapshot.docs.map(doc => ({
+    id: doc.id,
+    ...doc.data()
+  })) as Doctor[];
+};
+
+export const getDoctorById = async (id: string) => {
+  const docRef = doc(db, COLLECTIONS.DOCTORS, id);
+  const docSnap = await getDoc(docRef);
+  
+  if (docSnap.exists()) {
+    return { id: docSnap.id, ...docSnap.data() } as Doctor;
+  } else {
+    return null;
+  }
+};
+
+export const addDoctor = async (doctor: Omit<Doctor, 'id'>, imageFile?: File) => {
+  let imageUrl = doctor.image || '';
+  
+  if (imageFile) {
+    const storageRef = ref(storage, `doctors/${Date.now()}_${imageFile.name}`);
+    const uploadResult = await uploadBytes(storageRef, imageFile);
+    imageUrl = await getDownloadURL(uploadResult.ref);
+  }
+  
+  const docRef = await addDoc(collection(db, COLLECTIONS.DOCTORS), {
+    ...doctor,
+    image: imageUrl,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+  
+  return { id: docRef.id, ...doctor, image: imageUrl };
+};
+
+export const updateDoctor = async (id: string, doctor: Partial<Doctor>, imageFile?: File) => {
+  let imageUrl = doctor.image;
+  
+  if (imageFile) {
+    const storageRef = ref(storage, `doctors/${Date.now()}_${imageFile.name}`);
+    const uploadResult = await uploadBytes(storageRef, imageFile);
+    imageUrl = await getDownloadURL(uploadResult.ref);
+  }
+  
+  const docRef = doc(db, COLLECTIONS.DOCTORS, id);
+  await updateDoc(docRef, {
+    ...doctor,
+    ...(imageFile ? { image: imageUrl } : {}),
+    updatedAt: serverTimestamp()
+  });
+  
+  return { id, ...doctor, ...(imageFile ? { image: imageUrl } : {}) };
+};
+
+export const deleteDoctor = async (id: string) => {
+  const docRef = doc(db, COLLECTIONS.DOCTORS, id);
+  await deleteDoc(docRef);
+  return id;
 };
 
 // Real-time listeners
