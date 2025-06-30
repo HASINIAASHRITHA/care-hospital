@@ -22,10 +22,11 @@ export const storage = getStorage(app);
 export const COLLECTIONS = {
   USERS: 'users',
   APPOINTMENTS: 'appointments',
-  HEALTH_RECORDS: 'healthRecords',
-  CONTACT_MESSAGES: 'contactMessages',
-  ADMIN_LOGS: 'adminLogs',
-  DOCTORS: 'doctors'
+  CONTACT_MESSAGES: 'contact_messages',
+  ADMIN_LOGS: 'admin_logs',
+  DOCTORS: 'doctors',
+  NOTIFICATION_TEMPLATES: 'notification_templates',
+  NOTIFICATION_LOGS: 'notification_logs'
 };
 
 export default app;

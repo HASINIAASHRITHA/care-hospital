@@ -82,12 +82,21 @@ export interface Doctor {
   name: string;
   specialty: string;
   experience: string;
-  rating?: number;
-  image?: string;
   education: string;
   location: string;
-  availableToday: boolean;
   bio: string;
+  rating: number;
+  availableToday: boolean;
+  image: string;
+  specializations?: string[]; // New field
+  schedule?: {
+    [day: string]: {
+      enabled?: boolean;
+      start?: string;
+      end?: string;
+    };
+  }; // New field
+  blockedDates?: string[]; // New field
   createdAt?: any;
   updatedAt?: any;
 }

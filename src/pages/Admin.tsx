@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,7 +7,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { 
   Users, 
-  Calendar, 
   MessageSquare, 
   TrendingUp, 
   Search, 
@@ -72,6 +71,14 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { DoctorManagement } from '@/components/admin/DoctorManagement';
+import { format } from 'date-fns';
+import { Calendar as CalendarIcon } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+
+// New imports for date picker
+import { DayPicker } from 'react-day-picker';
+import { parseISO, formatISO } from 'date-fns';
 
 export interface AppointmentData {
   id?: string;
@@ -116,9 +123,83 @@ const Admin = () => {
     status: 'active'
   });
   
+  // Appointment management state
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [dateFilter, setDateFilter] = useState<Date | undefined>(undefined);
+  const [doctorFilter, setDoctorFilter] = useState<string>('all');
+  const [isRescheduleModalOpen, setIsRescheduleModalOpen] = useState(false);
+  const [currentAppointment, setCurrentAppointment] = useState<AppointmentData | null>(null);
+  const [newAppointmentDate, setNewAppointmentDate] = useState<Date | undefined>(undefined);
+  const [newAppointmentTime, setNewAppointmentTime] = useState<string>('');
+  const [isSubmittingReschedule, setIsSubmittingReschedule] = useState(false);
+  
   const { user, isAdmin, loading } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
+
+  // Initialize filteredData early to ensure consistent hook ordering
+  const filteredData = useMemo(() => ({
+    appointments: userAppointments.filter(appointment =>
+      appointment.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      appointment.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      appointment.department.toLowerCase().includes(searchTerm.toLowerCase())
+    ),
+    contacts: userContacts.filter(contact =>
+      contact.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      contact.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      contact.subject.toLowerCase().includes(searchTerm.toLowerCase())
+    ),
+    patients: userPatients.filter(patient =>
+      patient.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      patient.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      patient.phone.toLowerCase().includes(searchTerm.toLowerCase())
+    )
+  }), [userAppointments, userContacts, userPatients, searchTerm]);
+
+  // Get unique doctors for filtering - move before any conditional logic
+  const uniqueDoctors = useMemo(() => {
+    const doctorSet = new Set<string>();
+    userAppointments.forEach(appointment => {
+      if (appointment.doctor) {
+        doctorSet.add(appointment.doctor);
+      }
+    });
+    return Array.from(doctorSet);
+  }, [userAppointments]);
+
+  // Apply filters to appointments - move before any conditional logic
+  const filteredAppointments = useMemo(() => {
+    return filteredData.appointments.filter(appointment => {
+      // Status filter
+      if (statusFilter !== 'all' && appointment.status !== statusFilter) {
+        return false;
+      }
+      
+      // Doctor filter
+      if (doctorFilter !== 'all' && appointment.doctor !== doctorFilter) {
+        return false;
+      }
+      
+      // Date filter
+      if (dateFilter && appointment.date) {
+        try {
+          const appointmentDate = new Date(appointment.date);
+          const filterDate = new Date(dateFilter);
+          if (
+            appointmentDate.getDate() !== filterDate.getDate() ||
+            appointmentDate.getMonth() !== filterDate.getMonth() ||
+            appointmentDate.getFullYear() !== filterDate.getFullYear()
+          ) {
+            return false;
+          }
+        } catch (e) {
+          console.error('Error comparing dates:', e);
+        }
+      }
+      
+      return true;
+    });
+  }, [filteredData.appointments, statusFilter, doctorFilter, dateFilter]);
 
   console.log('Admin page state:', { user: !!user, isAdmin, loading });
 
@@ -189,6 +270,150 @@ const Admin = () => {
         description: "There was an error logging out",
         variant: "destructive"
       });
+    }
+  };
+  
+  // Patient management functions
+  const openNewPatientDialog = () => {
+    setIsNewPatient(true);
+    setPatientFormData({
+      name: '',
+      email: '',
+      phone: '',
+      age: undefined,
+      gender: '',
+      address: '',
+      emergencyContact: '',
+      medicalHistory: '',
+      status: 'active'
+    });
+    setPatientDialogOpen(true);
+  };
+  
+  const openViewPatientDialog = (patient: PatientData) => {
+    setCurrentPatient(patient);
+    setPatientViewOpen(true);
+  };
+  
+  const openEditPatientDialog = (patient: PatientData) => {
+    setIsNewPatient(false);
+    setCurrentPatient(patient);
+    setPatientFormData({
+      name: patient.name,
+      email: patient.email,
+      phone: patient.phone,
+      age: patient.age,
+      gender: patient.gender,
+      address: patient.address,
+      emergencyContact: patient.emergencyContact,
+      medicalHistory: patient.medicalHistory,
+      status: patient.status
+    });
+    setPatientDialogOpen(true);
+  };
+  
+  const openDeleteConfirmation = (patient: PatientData) => {
+    setCurrentPatient(patient);
+    setDeleteDialogOpen(true);
+  };
+  
+  const handlePatientFormSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    
+    setIsSubmittingPatient(true);
+    
+    try {
+      if (isNewPatient) {
+        await createPatient(
+          patientFormData as PatientData
+        );
+        toast({
+          title: "Patient Created",
+          description: "New patient record has been created successfully",
+          className: "bg-green-50 border-green-200"
+        });
+      } else if (currentPatient?.id) {
+        await updatePatient(currentPatient.id, patientFormData, user.uid);
+        toast({
+          title: "Patient Updated",
+          description: "Patient information has been updated successfully",
+          className: "bg-blue-50 border-blue-200"
+        });
+      }
+      setPatientDialogOpen(false);
+    } catch (error: any) {
+      toast({
+        title: "Operation Failed",
+        description: error.message || "There was an error processing your request",
+        variant: "destructive"
+      });
+    } finally {
+      setIsSubmittingPatient(false);
+    }
+  };
+  
+  const handleDeletePatient = async () => {
+    if (!user || !currentPatient?.id) return;
+    
+    try {
+      await deletePatient(currentPatient.id, user.uid);
+      setDeleteDialogOpen(false);
+      toast({
+        title: "Patient Deleted",
+        description: "Patient record has been deleted successfully",
+        className: "bg-blue-50 border-blue-200"
+      });
+    } catch (error: any) {
+      toast({
+        title: "Delete Failed",
+        description: error.message || "There was an error deleting the patient",
+        variant: "destructive"
+      });
+    }
+  };
+  
+  // Appointment management functions
+  const openRescheduleModal = (appointment: AppointmentData) => {
+    setCurrentAppointment(appointment);
+    if (appointment.date) {
+      try {
+        const date = parseISO(appointment.date);
+        setNewAppointmentDate(date);
+      } catch (e) {
+        setNewAppointmentDate(undefined);
+      }
+    }
+    setNewAppointmentTime(appointment.time || '');
+    setIsRescheduleModalOpen(true);
+  };
+  
+  const handleRescheduleAppointment = async () => {
+    if (!user || !currentAppointment?.id || !newAppointmentDate || !newAppointmentTime) return;
+    
+    setIsSubmittingReschedule(true);
+    
+    try {
+      const formattedDate = format(newAppointmentDate, 'yyyy-MM-dd');
+      await updateAppointment(currentAppointment.id, {
+        date: formattedDate,
+        time: newAppointmentTime
+      }, user.uid);
+      
+      setIsRescheduleModalOpen(false);
+      toast({
+        title: "Appointment Rescheduled",
+        description: `Appointment for ${currentAppointment.patientName} has been rescheduled`,
+        className: "bg-green-50 border-green-200"
+      });
+    } catch (error: any) {
+      toast({
+        title: "Reschedule Failed",
+        description: error.message || "There was an error rescheduling the appointment",
+        variant: "destructive"
+      });
+    } finally {
+      setIsSubmittingReschedule(false);
     }
   };
 
@@ -386,140 +611,6 @@ const Admin = () => {
     );
   }
 
-  // Dashboard stats initialized
-  const filteredData = {
-    appointments: userAppointments.filter(appointment =>
-      appointment.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      appointment.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      appointment.department.toLowerCase().includes(searchTerm.toLowerCase())
-    ),
-    contacts: userContacts.filter(contact =>
-      contact.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      contact.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      contact.subject.toLowerCase().includes(searchTerm.toLowerCase())
-    ),
-    patients: userPatients.filter(patient =>
-      patient.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      patient.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      patient.phone.toLowerCase().includes(searchTerm.toLowerCase())
-    )
-  };
-
-  const openNewPatientDialog = () => {
-    setPatientFormData({
-      name: '',
-      email: '',
-      phone: '',
-      age: undefined,
-      gender: '',
-      address: '',
-      emergencyContact: '',
-      medicalHistory: '',
-      status: 'active'
-    });
-    setIsNewPatient(true);
-    setPatientDialogOpen(true);
-  };
-
-  const openEditPatientDialog = (patient: PatientData) => {
-    setPatientFormData({...patient});
-    setCurrentPatient(patient);
-    setIsNewPatient(false);
-    setPatientDialogOpen(true);
-  };
-
-  const openViewPatientDialog = (patient: PatientData) => {
-    setCurrentPatient(patient);
-    setPatientViewOpen(true);
-  };
-
-  const openDeleteConfirmation = (patient: PatientData) => {
-    setCurrentPatient(patient);
-    setDeleteDialogOpen(true);
-  };
-
-  const handlePatientFormSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user) return;
-    
-    if (!patientFormData.name || !patientFormData.phone) {
-      toast({
-        title: "Missing Required Fields",
-        description: "Name and phone number are required",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    setIsSubmittingPatient(true);
-
-    try {
-      if (isNewPatient) {
-        // Create new patient
-        const patientData: Omit<PatientData, 'id' | 'createdAt' | 'updatedAt'> = {
-          ...patientFormData as any,
-          status: patientFormData.status || 'active',
-          userId: user.uid
-        };
-        
-        const patientId = await createPatient(patientData);
-        
-        toast({
-          title: "Patient Created",
-          description: `Patient ${patientFormData.name} has been added successfully`,
-          className: "bg-green-50 border-green-200"
-        });
-      } else if (currentPatient?.id) {
-        // Update existing patient
-        await updatePatient(
-          currentPatient.id, 
-          patientFormData as Partial<PatientData>, 
-          user.uid
-        );
-        
-        toast({
-          title: "Patient Updated",
-          description: `Patient ${patientFormData.name} has been updated successfully`,
-          className: "bg-blue-50 border-blue-200"
-        });
-      }
-      
-      setPatientDialogOpen(false);
-    } catch (error) {
-      console.error("Error managing patient:", error);
-      toast({
-        title: "Operation Failed",
-        description: "There was an error processing your request",
-        variant: "destructive"
-      });
-    } finally {
-      setIsSubmittingPatient(false);
-    }
-  };
-
-  const handleDeletePatient = async () => {
-    if (!user || !currentPatient?.id) return;
-    
-    try {
-      await deletePatient(currentPatient.id, user.uid);
-      
-      toast({
-        title: "Patient Deleted",
-        description: `${currentPatient.name} has been removed from the system`,
-        className: "bg-gray-50 border-gray-200"
-      });
-      
-      setDeleteDialogOpen(false);
-    } catch (error) {
-      console.error("Error deleting patient:", error);
-      toast({
-        title: "Delete Failed",
-        description: "There was an error deleting this patient",
-        variant: "destructive"
-      });
-    }
-  };
-
   // Main dashboard UI for authenticated admin users
   return (
     <div className="container mx-auto px-4 py-10 mt-20">
@@ -653,9 +744,77 @@ const Admin = () => {
           <Card>
             <CardHeader>
               <CardTitle>Appointment Management</CardTitle>
+              <div className="flex flex-col sm:flex-row gap-4 mt-4">
+                <div className="flex-1">
+                  <label className="text-sm font-medium mb-1 block">Filter by Status</label>
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="All Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="confirmed">Confirmed</SelectItem>
+                      <SelectItem value="completed">Completed</SelectItem>
+                      <SelectItem value="cancelled">Cancelled</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="flex-1">
+                  <label className="text-sm font-medium mb-1 block">Filter by Date</label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className="w-full justify-start text-left font-normal"
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {dateFilter ? format(dateFilter, 'PPP') : <span>Pick a date</span>}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0">
+                      <Calendar
+                        mode="single"
+                        selected={dateFilter}
+                        onSelect={(date) => setDateFilter(date)}
+                        initialFocus
+                      />
+                      {dateFilter && (
+                        <div className="p-2 border-t flex justify-between">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setDateFilter(undefined)}
+                          >
+                            Clear
+                          </Button>
+                        </div>
+                      )}
+                    </PopoverContent>
+                  </Popover>
+                </div>
+                
+                <div className="flex-1">
+                  <label className="text-sm font-medium mb-1 block">Filter by Doctor</label>
+                  <Select value={doctorFilter} onValueChange={setDoctorFilter}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="All Doctors" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Doctors</SelectItem>
+                      {uniqueDoctors.map((doctor, index) => (
+                        <SelectItem key={index} value={doctor}>
+                          {doctor}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="rounded-md border">
+              <div className="rounded-md border overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -668,9 +827,9 @@ const Admin = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredData.appointments.length > 0 ? (
-                      filteredData.appointments.map((appointment) => (
-                        <TableRow key={appointment.id}>
+                    {filteredAppointments.length > 0 ? (
+                      filteredAppointments.map((appointment) => (
+                        <TableRow key={appointment.id} className={appointment.status === 'pending' ? 'bg-amber-50/30' : ''}>
                           <TableCell>
                             <div className="font-medium">{appointment.patientName}</div>
                             <div className="text-xs text-gray-500">{appointment.email}</div>
@@ -693,21 +852,10 @@ const Admin = () => {
                                 <Button 
                                   size="sm" 
                                   variant="outline" 
-                                  className="w-full text-xs"
+                                  className="w-full text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200"
                                   onClick={() => appointment.id && handleUpdateAppointmentStatus(appointment.id, 'confirmed')}
                                 >
-                                  <Check className="h-3 w-3 mr-1" /> Confirm
-                                </Button>
-                              )}
-                              
-                              {(appointment.status === 'confirmed' || appointment.status === 'pending') && (
-                                <Button 
-                                  size="sm" 
-                                  variant="outline" 
-                                  className="w-full text-xs"
-                                  onClick={() => appointment.id && handleUpdateAppointmentStatus(appointment.id, 'completed')}
-                                >
-                                  <Clock className="h-3 w-3 mr-1" /> Complete
+                                  <Check className="h-3 w-3 mr-1" /> Approve
                                 </Button>
                               )}
                               
@@ -715,10 +863,32 @@ const Admin = () => {
                                 <Button 
                                   size="sm" 
                                   variant="outline" 
-                                  className="w-full text-xs text-red-500"
+                                  className="w-full text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200"
+                                  onClick={() => openRescheduleModal(appointment)}
+                                >
+                                  <CalendarClock className="h-3 w-3 mr-1" /> Reschedule
+                                </Button>
+                              )}
+                              
+                              {appointment.status !== 'cancelled' && appointment.status !== 'completed' && (
+                                <Button 
+                                  size="sm" 
+                                  variant="outline" 
+                                  className="w-full text-xs bg-red-50 hover:bg-red-100 text-red-700 border-red-200"
                                   onClick={() => appointment.id && handleUpdateAppointmentStatus(appointment.id, 'cancelled')}
                                 >
                                   <X className="h-3 w-3 mr-1" /> Cancel
+                                </Button>
+                              )}
+                              
+                              {appointment.status === 'confirmed' && (
+                                <Button 
+                                  size="sm" 
+                                  variant="outline" 
+                                  className="w-full text-xs bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200"
+                                  onClick={() => appointment.id && handleUpdateAppointmentStatus(appointment.id, 'completed')}
+                                >
+                                  <Clock className="h-3 w-3 mr-1" /> Mark Completed
                                 </Button>
                               )}
                               
@@ -750,7 +920,9 @@ const Admin = () => {
                     ) : (
                       <TableRow>
                         <TableCell colSpan={6} className="text-center py-4 text-gray-500">
-                          {searchTerm ? "No appointments match your search criteria" : "No appointments found in the system"}
+                          {searchTerm || statusFilter !== 'all' || doctorFilter !== 'all' || dateFilter 
+                            ? "No appointments match your filter criteria" 
+                            : "No appointments found in the system"}
                         </TableCell>
                       </TableRow>
                     )}
@@ -1043,6 +1215,86 @@ const Admin = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      
+      {/* Reschedule Appointment Dialog */}
+      <Dialog open={isRescheduleModalOpen} onOpenChange={setIsRescheduleModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reschedule Appointment</DialogTitle>
+            <DialogDescription>
+              {currentAppointment && `Reschedule appointment for ${currentAppointment.patientName}`}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="appointment-date">New Date</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    id="appointment-date"
+                    variant="outline"
+                    className="w-full justify-start text-left font-normal"
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {newAppointmentDate ? format(newAppointmentDate, 'PPP') : <span>Pick a date</span>}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <Calendar
+                    mode="single"
+                    selected={newAppointmentDate}
+                    onSelect={(date) => setNewAppointmentDate(date)}
+                    initialFocus
+                    disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="appointment-time">New Time</Label>
+              <Select value={newAppointmentTime} onValueChange={setNewAppointmentTime}>
+                <SelectTrigger id="appointment-time" className="w-full">
+                  <SelectValue placeholder="Select time" />
+                </SelectTrigger>
+                <SelectContent>
+                  {['09:00 AM', '09:30 AM', '10:00 AM', '10:30 AM', '11:00 AM', '11:30 AM', 
+                    '12:00 PM', '12:30 PM', '01:00 PM', '01:30 PM', '02:00 PM', '02:30 PM',
+                    '03:00 PM', '03:30 PM', '04:00 PM', '04:30 PM', '05:00 PM', '05:30 PM'
+                  ].map(time => (
+                    <SelectItem key={time} value={time}>{time}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => setIsRescheduleModalOpen(false)}
+              disabled={isSubmittingReschedule}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleRescheduleAppointment}
+              disabled={!newAppointmentDate || !newAppointmentTime || isSubmittingReschedule}
+              className="bg-gradient-to-r from-blue-600 to-blue-700"
+            >
+              {isSubmittingReschedule ? (
+                <>
+                  <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-b-transparent"></div>
+                  Saving...
+                </>
+              ) : (
+                'Reschedule Appointment'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

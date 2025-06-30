@@ -5,8 +5,12 @@ interface AppointmentMessage {
   date: string;
   time: string;
   phone: string;
-  messageType?: 'confirmation' | 'reminder';
+  messageType?: 'confirmation' | 'reminder' | 'cancellation' | 'reschedule';
   appointmentId?: string;
+  templateId?: string;
+  sentBy?: string;
+  newDate?: string;
+  newTime?: string;
 }
 
 export const sendWhatsAppMessage = async (appointmentData: AppointmentMessage) => {
@@ -369,3 +373,348 @@ function formatPhoneNumber(phone: string): string {
   
   return cleaned;
 }
+
+// Add new imports
+import { 
+  generateMessageFromTemplate, 
+  getTemplateById, 
+  logNotification 
+} from './notificationTemplates';
+
+// Enhanced WhatsApp message sender that can use templates
+export const sendWhatsAppMessageWithTemplate = async (appointmentData: AppointmentMessage) => {
+  try {
+    const { 
+      patientName, 
+      doctorName, 
+      department, 
+      date, 
+      time, 
+      phone, 
+      messageType = 'confirmation', 
+      appointmentId = '',
+      templateId,
+      sentBy = 'system',
+      newDate,
+      newTime
+    } = appointmentData;
+    
+    let message = '';
+    let templateName = '';
+    
+    // If templateId is provided, use that template
+    if (templateId) {
+      const template = await getTemplateById(templateId);
+      if (template) {
+        message = generateMessageFromTemplate(template.content, {
+          patient_name: patientName,
+          doctor_name: doctorName,
+          department: department,
+          appointment_date: date,
+          time: time,
+          appointment_id: appointmentId,
+          new_date: newDate,
+          new_time: newTime
+        });
+        templateName = template.name;
+      }
+    } else {
+      // Otherwise, fall back to the original hardcoded templates
+      if (messageType === 'confirmation') {
+        message = `
+🏥 *CARE HOSPITAL - Appointment Confirmation*
+
+Dear ${patientName},
+
+Your appointment has been *CONFIRMED* ✅
+
+📋 *Appointment Details:*
+👨‍⚕️ Doctor: ${doctorName}
+🏥 Department: ${department}
+📅 Date: ${date}
+🕐 Time: ${time}
+${appointmentId ? `🔢 Appointment ID: ${appointmentId}` : ''}
+
+📍 *Address:*
+Care Hospital
+123 Medical Center, New Delhi - 110001
+
+📞 *Emergency Contact:* 102
+📱 *Hospital Contact:* +91 98765 43210
+
+⏰ *Please arrive 15 minutes before your scheduled time*
+
+Thank you for choosing Care Hospital!
+        `.trim();
+        templateName = "Default Confirmation";
+      } else if (messageType === 'reminder') {
+        message = `
+🏥 *CARE HOSPITAL - Appointment Reminder*
+
+Dear ${patientName},
+
+This is a reminder for your upcoming appointment ⏰
+
+📋 *Appointment Details:*
+👨‍⚕️ Doctor: ${doctorName}
+🏥 Department: ${department}
+📅 Date: ${date}
+🕐 Time: ${time}
+${appointmentId ? `🔢 Appointment ID: ${appointmentId}` : ''}
+
+📍 *Address:*
+Care Hospital
+123 Medical Center, New Delhi - 110001
+
+⏰ *Please arrive 15 minutes before your scheduled time*
+
+We look forward to seeing you soon!
+        `.trim();
+        templateName = "Default Reminder";
+      } else if (messageType === 'cancellation') {
+        message = `
+🏥 *CARE HOSPITAL - Appointment Cancelled*
+
+Dear ${patientName},
+
+Your appointment with Dr. ${doctorName} scheduled for ${date} at ${time} has been cancelled.
+
+To reschedule, please call our appointment desk at +91 98765 43210 or book online.
+
+We apologize for any inconvenience caused.
+
+Care Hospital Team
+        `.trim();
+        templateName = "Default Cancellation";
+      } else if (messageType === 'reschedule') {
+        message = `
+🏥 *CARE HOSPITAL - Appointment Rescheduled*
+
+Dear ${patientName},
+
+We regret to inform you that Dr. ${doctorName} is unavailable on ${date}.
+
+Your appointment has been rescheduled to ${newDate || '[new date]'} at ${newTime || '[new time]'}.
+
+If this new time doesn't work for you, please call +91 98765 43210 to arrange an alternative.
+
+We apologize for any inconvenience caused.
+
+Care Hospital Team
+        `.trim();
+        templateName = "Default Reschedule";
+      }
+    }
+
+    // Send the message using existing functionality
+    const response = await simulateWhatsAppAPI(phone, message);
+    
+    if (response.success) {
+      // Log the notification
+      if (templateId) {
+        await logNotification({
+          templateId,
+          templateName,
+          type: messageType,
+          channel: 'whatsapp',
+          recipientName: patientName,
+          recipientPhone: phone,
+          appointmentId,
+          doctorName,
+          message,
+          status: 'sent',
+          sentBy
+        });
+      }
+      
+      console.log('WhatsApp message sent successfully');
+      return { 
+        success: true, 
+        messageId: response.messageId,
+        message 
+      };
+    } else {
+      throw new Error('Failed to send WhatsApp message');
+    }
+  } catch (error) {
+    console.error('Error sending WhatsApp message:', error);
+    throw error;
+  }
+};
+
+// Enhanced SMS message sender that can use templates
+export const sendSMSMessageWithTemplate = async (appointmentData: AppointmentMessage) => {
+  // Similar to the WhatsApp function but for SMS
+  // ...existing code...
+
+  const { 
+    patientName, 
+    doctorName, 
+    department, 
+    date, 
+    time, 
+    phone, 
+    messageType = 'confirmation', 
+    appointmentId = '',
+    templateId,
+    sentBy = 'system',
+    newDate,
+    newTime
+  } = appointmentData;
+
+  let message = '';
+  let templateName = '';
+  
+  // Use template if provided
+  if (templateId) {
+    const template = await getTemplateById(templateId);
+    if (template) {
+      message = generateMessageFromTemplate(template.content, {
+        patient_name: patientName,
+        doctor_name: doctorName,
+        department: department,
+        appointment_date: date,
+        time: time,
+        appointment_id: appointmentId,
+        new_date: newDate,
+        new_time: newTime
+      });
+      templateName = template.name;
+    }
+  } else {
+    // Otherwise, use default SMS formats (shorter for SMS)
+    if (messageType === 'confirmation') {
+      message = `Care Hospital: Dear ${patientName}, your appointment is confirmed with ${doctorName} (${department}) on ${date} at ${time}.${appointmentId ? ` Ref: ${appointmentId}.` : ''} Address: 123 Medical Center, New Delhi. Contact: +91 98765 43210`;
+      templateName = "Default SMS Confirmation";
+    } else if (messageType === 'reminder') {
+      message = `Care Hospital REMINDER: Dear ${patientName}, you have an appointment with ${doctorName} (${department}) tomorrow on ${date} at ${time}.${appointmentId ? ` Ref: ${appointmentId}.` : ''} Please arrive 15 mins early.`;
+      templateName = "Default SMS Reminder";
+    } else if (messageType === 'cancellation') {
+      message = `Care Hospital: Dear ${patientName}, your appointment with ${doctorName} on ${date} at ${time} has been cancelled. To reschedule, call +91 98765 43210.`;
+      templateName = "Default SMS Cancellation";
+    } else if (messageType === 'reschedule') {
+      message = `Care Hospital: Dear ${patientName}, your appointment with ${doctorName} has been rescheduled to ${newDate || '[new date]'} at ${newTime || '[new time]'}. If unsuitable, call +91 98765 43210.`;
+      templateName = "Default SMS Reschedule";
+    }
+  }
+
+  try {
+    console.log('Sending SMS to:', phone);
+    console.log('Message:', message);
+    
+    // Try using a real SMS API first, fall back to simulation if it fails
+    try {
+      const realSmsResult = await sendRealSMS(phone, message);
+      
+      // Log the notification
+      if (templateId) {
+        await logNotification({
+          templateId,
+          templateName,
+          type: messageType,
+          channel: 'sms',
+          recipientName: patientName,
+          recipientPhone: phone,
+          appointmentId,
+          doctorName,
+          message,
+          status: 'sent',
+          sentBy
+        });
+      }
+      
+      console.log('Real SMS sent successfully');
+      return { success: true, messageId: realSmsResult.messageId, provider: 'real', message };
+    } catch (realSmsError) {
+      console.log('Real SMS failed, falling back to simulation', realSmsError);
+      
+      // Fallback to simulation
+      const response = await simulateSMSAPI(phone, message);
+      
+      if (response.success) {
+        // Log the notification
+        if (templateId) {
+          await logNotification({
+            templateId,
+            templateName,
+            type: messageType,
+            channel: 'sms',
+            recipientName: patientName,
+            recipientPhone: phone,
+            appointmentId,
+            doctorName,
+            message,
+            status: 'sent',
+            sentBy
+          });
+        }
+        
+        console.log('SMS sent successfully (simulated)');
+        return { success: true, messageId: response.messageId, provider: 'simulated', message };
+      } else {
+        throw new Error('Failed to send SMS');
+      }
+    }
+  } catch (error) {
+    console.error('Error sending SMS:', error);
+    throw error;
+  }
+};
+
+// Enhanced notification function that uses templates
+export const sendNotificationWithTemplate = async (
+  appointmentData: AppointmentMessage,
+  sendWhatsApp = true,
+  sendSMS = true
+) => {
+  const results = {
+    whatsapp: null as any,
+    sms: null as any,
+    success: false,
+    message: ''
+  };
+
+  try {
+    // Validate phone number
+    if (!appointmentData.phone || appointmentData.phone.trim() === '') {
+      throw new Error('Phone number is required for sending notifications');
+    }
+    
+    // Clean and format the phone number to ensure it works
+    appointmentData.phone = formatPhoneNumber(appointmentData.phone);
+    
+    // Try WhatsApp first if enabled
+    if (sendWhatsApp) {
+      try {
+        results.whatsapp = await sendWhatsAppMessageWithTemplate(appointmentData);
+        results.message = results.whatsapp.message;
+      } catch (error) {
+        console.error('WhatsApp sending failed:', error);
+        results.whatsapp = { success: false, error };
+        // Force SMS to be sent if WhatsApp fails, ensuring at least one message is attempted
+        sendSMS = true;
+      }
+    }
+
+    // Send SMS if enabled or if WhatsApp failed
+    if (sendSMS) {
+      try {
+        results.sms = await sendSMSMessageWithTemplate(appointmentData);
+        if (!results.message) {
+          results.message = results.sms.message;
+        }
+      } catch (error) {
+        console.error('SMS sending failed:', error);
+        results.sms = { success: false, error };
+      }
+    }
+    
+    // Consider it successful if at least one method worked
+    results.success = (results.whatsapp?.success || results.sms?.success) || false;
+    
+    return results;
+  } catch (error) {
+    console.error('Error in sendNotificationWithTemplate:', error);
+    return { ...results, error };
+  }
+};

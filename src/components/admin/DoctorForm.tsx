@@ -16,12 +16,58 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { ImageUpload } from './ImageUpload';
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { format } from 'date-fns';
+import { CalendarIcon, X } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+
+// List of available specializations
+const SPECIALIZATIONS = [
+  "Cardiology",
+  "Neurology",
+  "Pediatrics",
+  "Orthopedics",
+  "Dermatology",
+  "Psychiatry",
+  "Oncology",
+  "Gynecology",
+  "Urology",
+  "Ophthalmology",
+  "ENT",
+  "Dentistry",
+  "Internal Medicine",
+  "Family Medicine",
+  "Emergency Medicine",
+];
+
+// Days of the week for schedule
+const DAYS_OF_WEEK = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday",
+];
 
 interface DoctorFormProps {
   doctor: Doctor | null;
   onSaved: () => void;
   onCancel: () => void;
 }
+
+// Extended Doctor interface (though we don't see the actual interface, we need to modify the form accordingly)
+// The actual interface would need updating in your types file
 
 export const DoctorForm = ({ doctor, onSaved, onCancel }: DoctorFormProps) => {
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -32,7 +78,12 @@ export const DoctorForm = ({ doctor, onSaved, onCancel }: DoctorFormProps) => {
 
   const form = useForm<Doctor>({
     defaultValues: isEditMode
-      ? { ...doctor }
+      ? { 
+          ...doctor,
+          specializations: doctor.specializations || [],
+          schedule: doctor.schedule || {},
+          blockedDates: doctor.blockedDates || [],
+        }
       : {
           name: '',
           specialty: '',
@@ -43,11 +94,28 @@ export const DoctorForm = ({ doctor, onSaved, onCancel }: DoctorFormProps) => {
           rating: 4.5,
           availableToday: true,
           image: '',
+          specializations: [],
+          schedule: {},
+          blockedDates: [],
         },
   });
 
   const handleImageChange = (file: File | null) => {
     setImageFile(file);
+  };
+
+  const handleAddBlockedDate = (date: Date) => {
+    const currentBlockedDates = form.getValues('blockedDates') || [];
+    const dateString = format(date, 'yyyy-MM-dd');
+    
+    if (!currentBlockedDates.includes(dateString)) {
+      form.setValue('blockedDates', [...currentBlockedDates, dateString]);
+    }
+  };
+
+  const handleRemoveBlockedDate = (dateToRemove: string) => {
+    const currentBlockedDates = form.getValues('blockedDates') || [];
+    form.setValue('blockedDates', currentBlockedDates.filter(date => date !== dateToRemove));
   };
 
   const onSubmit = async (data: Doctor) => {
@@ -85,6 +153,7 @@ export const DoctorForm = ({ doctor, onSaved, onCancel }: DoctorFormProps) => {
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Existing fields */}
           <FormField
             control={form.control}
             name="name"
@@ -104,7 +173,7 @@ export const DoctorForm = ({ doctor, onSaved, onCancel }: DoctorFormProps) => {
             name="specialty"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Specialty *</FormLabel>
+                <FormLabel>Primary Specialty *</FormLabel>
                 <FormControl>
                   <Input placeholder="Cardiologist" {...field} required />
                 </FormControl>
@@ -112,6 +181,51 @@ export const DoctorForm = ({ doctor, onSaved, onCancel }: DoctorFormProps) => {
               </FormItem>
             )}
           />
+          
+          {/* New field for specializations */}
+          <div className="md:col-span-2">
+            <FormField
+              control={form.control}
+              name="specializations"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Additional Specializations</FormLabel>
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-2">
+                      {field.value?.map((spec) => (
+                        <Badge key={spec} className="bg-blue-100 text-blue-800 hover:bg-blue-200">
+                          {spec}
+                          <X 
+                            className="ml-1 h-3 w-3 cursor-pointer" 
+                            onClick={() => {
+                              field.onChange(field.value.filter(s => s !== spec));
+                            }}
+                          />
+                        </Badge>
+                      ))}
+                    </div>
+                    <Select
+                      onValueChange={(value) => {
+                        if (!field.value?.includes(value)) {
+                          field.onChange([...(field.value || []), value]);
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Add specialization" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {SPECIALIZATIONS.filter(spec => !field.value?.includes(spec)).map((spec) => (
+                          <SelectItem key={spec} value={spec}>{spec}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
           
           <FormField
             control={form.control}
@@ -196,6 +310,112 @@ export const DoctorForm = ({ doctor, onSaved, onCancel }: DoctorFormProps) => {
               </FormItem>
             )}
           />
+
+          {/* Weekly schedule section */}
+          <div className="md:col-span-2">
+            <FormLabel className="block mb-2 text-lg font-medium">Weekly Schedule</FormLabel>
+            <div className="bg-gray-50 p-4 rounded-md space-y-4">
+              {DAYS_OF_WEEK.map((day) => (
+                <div key={day} className="flex items-center space-x-4">
+                  <FormField
+                    control={form.control}
+                    name={`schedule.${day}.enabled`}
+                    render={({ field }) => (
+                      <div className="flex items-center space-x-2">
+                        <Checkbox 
+                          id={`${day}-enabled`}
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                        <label 
+                          htmlFor={`${day}-enabled`}
+                          className="font-medium w-24"
+                        >
+                          {day}
+                        </label>
+                      </div>
+                    )}
+                  />
+                  
+                  {form.watch(`schedule.${day}.enabled`) && (
+                    <div className="flex items-center space-x-2 flex-1">
+                      <FormField
+                        control={form.control}
+                        name={`schedule.${day}.start`}
+                        render={({ field }) => (
+                          <FormItem className="flex-1">
+                            <FormControl>
+                              <Input
+                                type="time"
+                                {...field}
+                                value={field.value || ''}
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                      <span>to</span>
+                      <FormField
+                        control={form.control}
+                        name={`schedule.${day}.end`}
+                        render={({ field }) => (
+                          <FormItem className="flex-1">
+                            <FormControl>
+                              <Input
+                                type="time"
+                                {...field}
+                                value={field.value || ''}
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Blocked dates section */}
+          <div className="md:col-span-2">
+            <FormLabel className="block mb-2 text-lg font-medium">Blocked Dates</FormLabel>
+            <div className="bg-gray-50 p-4 rounded-md">
+              <div className="mb-4">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start text-left font-normal"
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      Add blocked date
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0">
+                    <Calendar
+                      mode="single"
+                      selected={new Date()}
+                      onSelect={(date) => date && handleAddBlockedDate(date)}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {form.watch('blockedDates')?.map((date: string) => (
+                  <Badge key={date} className="bg-red-100 text-red-800 hover:bg-red-200">
+                    {date}
+                    <X 
+                      className="ml-1 h-3 w-3 cursor-pointer" 
+                      onClick={() => handleRemoveBlockedDate(date)}
+                    />
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          </div>
           
           <div className="md:col-span-2">
             <FormItem>
@@ -252,3 +472,11 @@ export const DoctorForm = ({ doctor, onSaved, onCancel }: DoctorFormProps) => {
     </Form>
   );
 };
+
+function generateMessage(template, data) {
+  return template
+    .replace('{patient_name}', data.patient_name)
+    .replace('{doctor_name}', data.doctor_name)
+    .replace('{appointment_date}', data.date)
+    .replace('{time}', data.time);
+}
