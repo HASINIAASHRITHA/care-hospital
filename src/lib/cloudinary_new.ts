@@ -1,19 +1,10 @@
 export const CLOUDINARY_CONFIG = {
   cloudName: 'dopo6gjfq',
-  uploadPreset: 'care_hospital' // Your custom preset - we'll create this if it doesn't exist
+  uploadPreset: 'ml_default' // Using Cloudinary's default preset
 };
 
-// Universal upload preset that works without any configuration
-// This will be our primary fallback
-const UNIVERSAL_PRESET = 'ml_default';
-
 // List of fallback presets to try if the main one fails
-const FALLBACK_PRESETS = [
-  UNIVERSAL_PRESET,       // Cloudinary's universal ML preset (should always work)
-  'unsigned_default',     // Common unsigned preset
-  'care_hospital_backup', // Backup preset name
-  'default'              // Basic default preset
-];
+const FALLBACK_PRESETS = ['ml_default', 'unsigned_default'];
 
 export const getOptimizedImageUrl = (publicId: string, options: {
   width?: number;

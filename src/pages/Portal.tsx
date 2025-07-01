@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,58 +8,84 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Calendar, FileText, Download, Clock, User, Phone, Mail, MapPin, CreditCard } from 'lucide-react';
+import { getUserAppointments, getUserData } from '@/services/firebase';
+import { useAuth } from '@/contexts/AuthContext';
 
 const Portal = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loginData, setLoginData] = useState({ phone: '', otp: '' });
   const [showOTP, setShowOTP] = useState(false);
+  const [userAppointments, setUserAppointments] = useState([]);
+  const [userData, setUserData] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [mockReports, setMockReports] = useState([
+    {
+      id: '1',
+      name: 'Blood Test Report',
+      type: 'Laboratory',
+      date: '10-May-2023',
+      doctor: 'Dr. Priya Sharma'
+    },
+    {
+      id: '2',
+      name: 'X-Ray Chest',
+      type: 'Radiology',
+      date: '15-Apr-2023',
+      doctor: 'Dr. Ajay Patel'
+    },
+    {
+      id: '3',
+      name: 'Annual Health Checkup',
+      type: 'General',
+      date: '02-Mar-2023',
+      doctor: 'Dr. Vikram Desai'
+    }
+  ]);
+  
+  const { user } = useAuth();
+  
+  // Check if user is authenticated
+  useEffect(() => {
+    if (user) {
+      setIsLoggedIn(true);
+      fetchUserData();
+    }
+  }, [user]);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     if (!showOTP) {
       setShowOTP(true);
     } else {
+      // In a real application, you'd verify the OTP here
       setIsLoggedIn(true);
+      // For demo purposes, we're just logging in without verification
+    }
+  };
+  
+  const fetchUserData = async () => {
+    if (!user?.uid) return;
+    
+    setIsLoading(true);
+    try {
+      // Fetch user appointments
+      const appointments = await getUserAppointments(user.uid);
+      setUserAppointments(appointments);
+      
+      // Fetch user profile data
+      const profile = await getUserData(user.uid);
+      if (profile) {
+        setUserData(profile);
+      }
+    } catch (error) {
+      console.error("Error fetching user data:", error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const mockAppointments = [
-    {
-      id: 1,
-      date: '2024-01-15',
-      time: '10:00 AM',
-      doctor: 'Dr. Rajesh Kumar',
-      department: 'Cardiology',
-      status: 'Confirmed',
-      type: 'Consultation'
-    },
-    {
-      id: 2,
-      date: '2024-01-20',
-      time: '02:30 PM',
-      doctor: 'Dr. Priya Sharma',
-      department: 'General Medicine',
-      status: 'Pending',
-      type: 'Follow-up'
-    }
-  ];
-
-  const mockReports = [
-    {
-      id: 1,
-      name: 'Blood Test Report',
-      date: '2024-01-10',
-      doctor: 'Dr. Amit Patel',
-      type: 'Lab Report'
-    },
-    {
-      id: 2,
-      name: 'ECG Report',
-      date: '2024-01-08',
-      doctor: 'Dr. Rajesh Kumar',
-      type: 'Diagnostic'
-    }
-  ];
+  // Replace mock data with data from Firebase
+  const appointments = userAppointments;
 
   if (!isLoggedIn) {
     return (
@@ -136,6 +162,24 @@ const Portal = () => {
     );
   }
 
+  // Show loading state while fetching data
+  if (isLoggedIn && isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-green-50">
+        <Header />
+        <section className="py-24">
+          <div className="container mx-auto px-4">
+            <div className="flex justify-center">
+              <div className="w-16 h-16 border-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+            </div>
+            <p className="text-center mt-4 text-gray-600">Loading your data...</p>
+          </div>
+        </section>
+        <Footer />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-green-50">
       <Header />
@@ -145,9 +189,9 @@ const Portal = () => {
           <div className="flex justify-between items-center max-w-6xl mx-auto">
             <div>
               <h1 className="text-3xl md:text-4xl font-bold mb-2">
-                Welcome, Rahul Kumar
+                Welcome, {userData?.name || "Patient"}
               </h1>
-              <p className="text-orange-100">Patient ID: PAT001234</p>
+              <p className="text-orange-100">Patient ID: {userData?.id || "Unknown"}</p>
             </div>
             <Button 
               variant="outline" 
@@ -188,29 +232,42 @@ const Portal = () => {
                 </div>
                 
                 <div className="grid gap-4">
-                  {mockAppointments.map((appointment) => (
-                    <Card key={appointment.id} className="shadow-lg hover:shadow-xl transition-shadow">
-                      <CardContent className="p-6">
-                        <div className="flex justify-between items-start">
-                          <div className="space-y-2">
-                            <div className="flex items-center space-x-2">
-                              <Calendar className="w-5 h-5 text-blue-600" />
-                              <span className="font-semibold">{appointment.date} at {appointment.time}</span>
-                              <Badge className={appointment.status === 'Confirmed' ? 'bg-green-500' : 'bg-yellow-500'}>
-                                {appointment.status}
-                              </Badge>
+                  {appointments.length > 0 ? (
+                    appointments.map((appointment) => (
+                      <Card key={appointment.id} className="shadow-lg hover:shadow-xl transition-shadow">
+                        <CardContent className="p-6">
+                          <div className="flex justify-between items-start">
+                            <div className="space-y-2">
+                              <div className="flex items-center space-x-2">
+                                <Calendar className="w-5 h-5 text-blue-600" />
+                                <span className="font-semibold">{appointment.date} at {appointment.time}</span>
+                                <Badge className={appointment.status === 'confirmed' ? 'bg-green-500' : 'bg-yellow-500'}>
+                                  {appointment.status}
+                                </Badge>
+                              </div>
+                              <div className="text-lg font-semibold">{appointment.doctor}</div>
+                              <div className="text-gray-600">{appointment.department}</div>
                             </div>
-                            <div className="text-lg font-semibold">{appointment.doctor}</div>
-                            <div className="text-gray-600">{appointment.department} - {appointment.type}</div>
+                            <div className="space-x-2">
+                              <Button size="sm" variant="outline">Reschedule</Button>
+                              <Button size="sm" variant="outline" className="text-red-600">Cancel</Button>
+                            </div>
                           </div>
-                          <div className="space-x-2">
-                            <Button size="sm" variant="outline">Reschedule</Button>
-                            <Button size="sm" variant="outline" className="text-red-600">Cancel</Button>
-                          </div>
+                        </CardContent>
+                      </Card>
+                    ))
+                  ) : (
+                    <Card className="shadow-lg">
+                      <CardContent className="p-6 text-center">
+                        <div className="py-8">
+                          <p className="text-gray-500 mb-4">You don't have any appointments yet.</p>
+                          <Button className="bg-gradient-to-r from-orange-500 to-green-500">
+                            Book Your First Appointment
+                          </Button>
                         </div>
                       </CardContent>
                     </Card>
-                  ))}
+                  )}
                 </div>
               </TabsContent>
 

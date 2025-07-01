@@ -76,12 +76,35 @@ export const DoctorForm = ({ doctor, onSaved, onCancel }: DoctorFormProps) => {
   
   const isEditMode = !!doctor;
 
+  // Initialize schedule with proper structure for all days
+  const initializeSchedule = () => {
+    const initialSchedule: Record<string, { enabled: boolean; start: string; end: string }> = {};
+    
+    DAYS_OF_WEEK.forEach(day => {
+      if (isEditMode && doctor?.schedule && doctor.schedule[day]) {
+        initialSchedule[day] = {
+          enabled: true,
+          start: doctor.schedule[day].start || "09:00",
+          end: doctor.schedule[day].end || "17:00"
+        };
+      } else {
+        initialSchedule[day] = {
+          enabled: false,
+          start: "09:00",
+          end: "17:00"
+        };
+      }
+    });
+    
+    return initialSchedule;
+  };
+
   const form = useForm<Doctor>({
     defaultValues: isEditMode
       ? { 
           ...doctor,
           specializations: doctor.specializations || [],
-          schedule: doctor.schedule || {},
+          schedule: initializeSchedule(),
           blockedDates: doctor.blockedDates || [],
         }
       : {
@@ -95,7 +118,7 @@ export const DoctorForm = ({ doctor, onSaved, onCancel }: DoctorFormProps) => {
           availableToday: true,
           image: '',
           specializations: [],
-          schedule: {},
+          schedule: initializeSchedule(),
           blockedDates: [],
         },
   });

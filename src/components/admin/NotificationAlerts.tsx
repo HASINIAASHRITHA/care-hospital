@@ -30,7 +30,7 @@ import { Search, CalendarIcon, AlertCircle, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
 import { 
   NotificationLog, 
-  getNotificationLogs 
+  listenToNotificationLogs  // Updated to use real-time listener
 } from '@/services/notificationTemplates';
 import { useToast } from '@/hooks/use-toast';
 
@@ -44,26 +44,48 @@ export const NotificationAlerts = () => {
   
   const { toast } = useToast();
   
-  const fetchLogs = async () => {
-    try {
-      setIsLoading(true);
-      const data = await getNotificationLogs();
-      setLogs(data);
-    } catch (error) {
+  const fetchLogs = () => {
+    setIsLoading(true);
+    listenToNotificationLogs(
+      (notificationLogs) => {
+        setLogs(notificationLogs);
+        setIsLoading(false);
+      },
+      (error) => {
+        console.error('Error fetching notification logs:', error);
+        toast({
+          title: 'Error',
+          description: 'Failed to load notification logs',
+          variant: 'destructive',
+        });
+        setIsLoading(false);
+      }
+    );
+  };
+  
+  useEffect(() => {
+    setIsLoading(true);
+    
+    // Use real-time listener instead of one-time fetch
+    listenToNotificationLogs((notificationLogs) => {
+      setLogs(notificationLogs);
+      setIsLoading(false);
+    }, (error) => {
       console.error('Error fetching notification logs:', error);
       toast({
         title: 'Error',
         description: 'Failed to load notification logs',
         variant: 'destructive',
       });
-    } finally {
       setIsLoading(false);
-    }
-  };
-  
-  useEffect(() => {
-    fetchLogs();
-  }, []);
+    });
+    
+    // Note: If you need to unsubscribe from the listener when the component unmounts,
+    // make sure listenToNotificationLogs returns an unsubscribe function
+    return () => {
+      // Cleanup logic would go here
+    };
+  }, [toast]);
   
   // Filter logs based on search term and filters
   const filteredLogs = logs.filter(log => {

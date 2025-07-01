@@ -12,15 +12,9 @@ import {
   serverTimestamp,
   getDoc
 } from 'firebase/firestore';
-import { 
-  signInWithEmailAndPassword, 
-  signOut, 
-  onAuthStateChanged,
-  User
-} from 'firebase/auth';
-import { db, auth, storage, COLLECTIONS } from '@/config/firebase';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { db, COLLECTIONS, auth } from '@/config/firebase';
+import { uploadToCloudinary } from '@/lib/cloudinary';
 // Types
 export interface PatientData {
   id?: string;
@@ -85,18 +79,12 @@ export interface Doctor {
   education: string;
   location: string;
   bio: string;
-  rating: number;
+  rating?: number;
   availableToday: boolean;
-  image: string;
-  specializations?: string[]; // New field
-  schedule?: {
-    [day: string]: {
-      enabled?: boolean;
-      start?: string;
-      end?: string;
-    };
-  }; // New field
-  blockedDates?: string[]; // New field
+  image?: string;
+  specializations?: string[];
+  schedule?: Record<string, {start: string; end: string}>;
+  blockedDates?: string[];
   createdAt?: any;
   updatedAt?: any;
 }
@@ -315,68 +303,98 @@ export const deletePatient = async (id: string, adminId: string) => {
 };
 
 // Doctor Services
-export const getDoctors = async () => {
-  const doctorsRef = collection(db, COLLECTIONS.DOCTORS);
-  const snapshot = await getDocs(doctorsRef);
-  return snapshot.docs.map(doc => ({
-    id: doc.id,
-    ...doc.data()
-  })) as Doctor[];
-};
-
-export const getDoctorById = async (id: string) => {
-  const docRef = doc(db, COLLECTIONS.DOCTORS, id);
-  const docSnap = await getDoc(docRef);
-  
-  if (docSnap.exists()) {
-    return { id: docSnap.id, ...docSnap.data() } as Doctor;
-  } else {
-    return null;
+export const addDoctor = async (doctorData: Omit<Doctor, 'id'>, imageFile?: File) => {
+  try {
+    let imageUrl = doctorData.image || '';
+    
+    // Upload image to Cloudinary if provided
+    if (imageFile) {
+      try {
+        imageUrl = await uploadToCloudinary(imageFile, 'doctors');
+        console.log('Image uploaded successfully:', imageUrl);
+      } catch (error: any) {
+        console.error('Image upload error:', error);
+        // Don't throw error - allow doctor to be saved without image
+        console.warn('Doctor will be saved without image due to upload failure');
+        imageUrl = ''; // Reset to empty string if upload fails
+      }
+    }
+    
+    // Create doctor document with or without image URL
+    const docRef = await addDoc(collection(db, COLLECTIONS.DOCTORS), {
+      ...doctorData,
+      image: imageUrl,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+    
+    console.log('Doctor saved successfully with ID:', docRef.id);
+    return docRef.id;
+  } catch (error) {
+    console.error('Error adding doctor:', error);
+    throw error;
   }
 };
 
-export const addDoctor = async (doctor: Omit<Doctor, 'id'>, imageFile?: File) => {
-  let imageUrl = doctor.image || '';
-  
-  if (imageFile) {
-    const storageRef = ref(storage, `doctors/${Date.now()}_${imageFile.name}`);
-    const uploadResult = await uploadBytes(storageRef, imageFile);
-    imageUrl = await getDownloadURL(uploadResult.ref);
+export const updateDoctor = async (id: string, doctorData: Partial<Doctor>, imageFile?: File) => {
+  try {
+    let imageUrl = doctorData.image;
+    
+    // Upload new image to Cloudinary if provided
+    if (imageFile) {
+      try {
+        imageUrl = await uploadToCloudinary(imageFile, 'doctors');
+        console.log('Image uploaded successfully:', imageUrl);
+      } catch (error: any) {
+        console.error('Image upload error:', error);
+        // Don't throw error - allow doctor to be updated without new image
+        console.warn('Doctor will be updated without new image due to upload failure');
+        // Keep the existing image URL if new upload fails
+      }
+    }
+    
+    const docRef = doc(db, COLLECTIONS.DOCTORS, id);
+    await updateDoc(docRef, {
+      ...doctorData,
+      image: imageUrl,
+      updatedAt: serverTimestamp()
+    });
+    
+    console.log('Doctor updated successfully');
+    return id;
+  } catch (error) {
+    console.error('Error updating doctor:', error);
+    throw error;
   }
-  
-  const docRef = await addDoc(collection(db, COLLECTIONS.DOCTORS), {
-    ...doctor,
-    image: imageUrl,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp()
+};
+
+export const getDoctors = async (): Promise<Doctor[]> => {
+  try {
+    const q = query(collection(db, COLLECTIONS.DOCTORS), orderBy('name'));
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Doctor));
+  } catch (error) {
+    console.error('Error getting doctors:', error);
+    throw error;
+  }
+};
+
+// New function: Real-time listener for doctors
+export const listenToDoctors = (callback: (doctors: Doctor[]) => void) => {
+  const q = query(collection(db, COLLECTIONS.DOCTORS), orderBy('name'));
+  return onSnapshot(q, (snapshot) => {
+    const doctors = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Doctor));
+    callback(doctors);
   });
-  
-  return { id: docRef.id, ...doctor, image: imageUrl };
 };
 
-export const updateDoctor = async (id: string, doctor: Partial<Doctor>, imageFile?: File) => {
-  let imageUrl = doctor.image;
-  
-  if (imageFile) {
-    const storageRef = ref(storage, `doctors/${Date.now()}_${imageFile.name}`);
-    const uploadResult = await uploadBytes(storageRef, imageFile);
-    imageUrl = await getDownloadURL(uploadResult.ref);
+export const deleteDoctor = async (id: string): Promise<void> => {
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.DOCTORS, id));
+  } catch (error) {
+    console.error('Error deleting doctor:', error);
+    throw error;
   }
-  
-  const docRef = doc(db, COLLECTIONS.DOCTORS, id);
-  await updateDoc(docRef, {
-    ...doctor,
-    ...(imageFile ? { image: imageUrl } : {}),
-    updatedAt: serverTimestamp()
-  });
-  
-  return { id, ...doctor, ...(imageFile ? { image: imageUrl } : {}) };
-};
-
-export const deleteDoctor = async (id: string) => {
-  const docRef = doc(db, COLLECTIONS.DOCTORS, id);
-  await deleteDoc(docRef);
-  return id;
 };
 
 // Real-time listeners
@@ -449,3 +467,8 @@ export const getUserData = async (userId: string) => {
     throw error;
   }
 };
+
+// Real-time listeners for admin data
+// Note: Component-specific code has been removed.
+// The React hooks (useEffect) and state update functions should be implemented in your React components, not in this service file.
+// Use the listener functions (listenToAppointments, listenToPatients, listenToContactMessages) in your components instead.

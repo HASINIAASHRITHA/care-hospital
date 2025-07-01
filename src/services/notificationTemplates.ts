@@ -11,7 +11,8 @@ import {
   orderBy, 
   getDoc,
   serverTimestamp,
-  limit
+  limit,
+  onSnapshot
 } from 'firebase/firestore';
 
 export interface NotificationTemplate {
@@ -54,7 +55,7 @@ export interface Doctor {
   blockedDates?: string[];
 }
 
-// Default templates
+// Default templates (used only as fallback if no templates exist in database)
 export const DEFAULT_TEMPLATES: Omit<NotificationTemplate, 'id' | 'createdAt' | 'updatedAt' | 'createdBy'>[] = [
   {
     name: 'Appointment Confirmation',
@@ -115,36 +116,100 @@ Care Hospital Team`
   }
 ];
 
-// Get all templates
-export const getAllTemplates = async () => {
+// Template CRUD operations
+export const getAllTemplates = async (): Promise<NotificationTemplate[]> => {
   try {
     const q = query(collection(db, COLLECTIONS.NOTIFICATION_TEMPLATES), orderBy('createdAt', 'desc'));
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as NotificationTemplate[];
+    
+    const templates = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as NotificationTemplate));
+    
+    // If no templates exist, initialize with defaults
+    if (templates.length === 0) {
+      console.log('No templates found, initializing with defaults...');
+      await initializeDefaultTemplates();
+      // Fetch again after initialization
+      return getAllTemplates();
+    }
+    
+    return templates;
   } catch (error) {
-    console.error('Error getting notification templates:', error);
+    console.error('Error getting templates:', error);
     throw error;
   }
 };
 
-// Get template by ID
-export const getTemplateById = async (id: string) => {
+// Initialize default templates if none exist
+export const initializeDefaultTemplates = async () => {
+  try {
+    const batch = [];
+    
+    for (const template of DEFAULT_TEMPLATES) {
+      batch.push(
+        addDoc(collection(db, COLLECTIONS.NOTIFICATION_TEMPLATES), {
+          ...template,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          createdBy: 'system'
+        })
+      );
+    }
+    
+    await Promise.all(batch);
+    console.log('Default templates initialized successfully');
+  } catch (error) {
+    console.error('Error initializing default templates:', error);
+    throw error;
+  }
+};
+
+export const getTemplateById = async (id: string): Promise<NotificationTemplate | null> => {
   try {
     const docRef = doc(db, COLLECTIONS.NOTIFICATION_TEMPLATES, id);
     const docSnap = await getDoc(docRef);
     
     if (docSnap.exists()) {
-      return { id: docSnap.id, ...docSnap.data() } as NotificationTemplate;
-    } else {
-      return null;
+      return {
+        id: docSnap.id,
+        ...docSnap.data()
+      } as NotificationTemplate;
     }
+    
+    return null;
   } catch (error) {
     console.error('Error getting template by ID:', error);
     throw error;
   }
 };
 
-// Create a new template
+export const getTemplateByType = async (type: string): Promise<NotificationTemplate | null> => {
+  try {
+    const q = query(
+      collection(db, COLLECTIONS.NOTIFICATION_TEMPLATES),
+      where('type', '==', type),
+      limit(1)
+    );
+    
+    const querySnapshot = await getDocs(q);
+    
+    if (!querySnapshot.empty) {
+      const doc = querySnapshot.docs[0];
+      return {
+        id: doc.id,
+        ...doc.data()
+      } as NotificationTemplate;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error getting template by type:', error);
+    throw error;
+  }
+};
+
 export const createTemplate = async (template: Omit<NotificationTemplate, 'id' | 'createdAt' | 'updatedAt'>) => {
   try {
     const docRef = await addDoc(collection(db, COLLECTIONS.NOTIFICATION_TEMPLATES), {
@@ -152,110 +217,90 @@ export const createTemplate = async (template: Omit<NotificationTemplate, 'id' |
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
-    return { id: docRef.id, ...template };
+    
+    return docRef.id;
   } catch (error) {
-    console.error('Error creating notification template:', error);
+    console.error('Error creating template:', error);
     throw error;
   }
 };
 
-// Update a template
 export const updateTemplate = async (id: string, template: Partial<NotificationTemplate>) => {
   try {
     const docRef = doc(db, COLLECTIONS.NOTIFICATION_TEMPLATES, id);
+    
     await updateDoc(docRef, {
       ...template,
       updatedAt: serverTimestamp()
     });
-    return { id, ...template };
+    
+    return id;
   } catch (error) {
-    console.error('Error updating notification template:', error);
+    console.error('Error updating template:', error);
     throw error;
   }
 };
 
-// Delete a template
 export const deleteTemplate = async (id: string) => {
   try {
     await deleteDoc(doc(db, COLLECTIONS.NOTIFICATION_TEMPLATES, id));
-    return id;
+    return true;
   } catch (error) {
-    console.error('Error deleting notification template:', error);
+    console.error('Error deleting template:', error);
     throw error;
   }
 };
 
-// Initialize default templates if none exist
-export const initializeDefaultTemplates = async (userId: string) => {
-  try {
-    const templates = await getAllTemplates();
-    
-    if (templates.length === 0) {
-      const promises = DEFAULT_TEMPLATES.map(template => 
-        createTemplate({
-          ...template,
-          createdBy: userId
-        })
-      );
-      
-      await Promise.all(promises);
-      console.log('Default notification templates initialized');
-    }
-  } catch (error) {
-    console.error('Error initializing default templates:', error);
-  }
-};
-
-// Log notification
-export const logNotification = async (notificationLog: Omit<NotificationLog, 'id' | 'sentAt'>) => {
+// Notification logs
+export const createNotificationLog = async (log: Omit<NotificationLog, 'id' | 'sentAt'>) => {
   try {
     const docRef = await addDoc(collection(db, COLLECTIONS.NOTIFICATION_LOGS), {
-      ...notificationLog,
+      ...log,
       sentAt: serverTimestamp()
     });
-    return { id: docRef.id, ...notificationLog };
+    
+    return docRef.id;
   } catch (error) {
-    console.error('Error logging notification:', error);
+    console.error('Error creating notification log:', error);
     throw error;
   }
 };
-// Get all notification logs
-export const getNotificationLogs = async (limitCount = 50) => {
+
+export const getNotificationLogs = async () => {
   try {
-    const q = query(
-      collection(db, COLLECTIONS.NOTIFICATION_LOGS), 
-      orderBy('sentAt', 'desc'),
-      limit(limitCount)
-    );
+    const q = query(collection(db, COLLECTIONS.NOTIFICATION_LOGS), orderBy('sentAt', 'desc'));
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as NotificationLog[];
+    
+    return querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }) as NotificationLog);
   } catch (error) {
     console.error('Error getting notification logs:', error);
     throw error;
   }
 };
 
-// Generate message from template
-export const generateMessageFromTemplate = (
-  template: string, 
-  data: {
-    patient_name: string;
-    doctor_name: string;
-    department?: string;
-    appointment_date: string;
-    time: string;
-    appointment_id?: string;
-    new_date?: string;
-    new_time?: string;
+export const listenToNotificationLogs = (callback: (logs: NotificationLog[]) => void, onError?: (error: Error) => void) => {
+  const q = query(collection(db, COLLECTIONS.NOTIFICATION_LOGS), orderBy('sentAt', 'desc'));
+  
+  return onSnapshot(q, (snapshot) => {
+    const logs = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as NotificationLog));
+    
+    callback(logs);
+  }, onError);
+};
+
+// Helper function to replace placeholders in templates
+export const generateMessageFromTemplate = (template: string, data: Record<string, string>) => {
+  let message = template;
+  
+  for (const [key, value] of Object.entries(data)) {
+    message = message.replace(new RegExp(`{${key}}`, 'g'), value || `{${key}}`);
   }
-) => {
-  return template
-    .replace(/{patient_name}/g, data.patient_name)
-    .replace(/{doctor_name}/g, data.doctor_name)
-    .replace(/{department}/g, data.department || '')
-    .replace(/{appointment_date}/g, data.appointment_date)
-    .replace(/{time}/g, data.time)
-    .replace(/{appointment_id}/g, data.appointment_id || '')
-    .replace(/{new_date}/g, data.new_date || '')
-    .replace(/{new_time}/g, data.new_time || '');
+  
+  return message;
 };

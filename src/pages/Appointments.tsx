@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
 import NotificationPreferences from '@/components/NotificationPreferences';
@@ -12,8 +12,15 @@ import { Calendar } from '@/components/ui/calendar';
 import { Badge } from '@/components/ui/badge';
 import { CalendarDays, Clock, Phone, Mail, MapPin, CreditCard, CheckCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { submitAppointment, AppointmentData } from '@/services/firebase';
+import { submitAppointment, AppointmentData, getDoctors, Doctor } from '@/services/firebase';
 import { sendAppointmentNotification } from '@/services/whatsapp';
+
+// Define available time slots for appointments
+const timeSlots = [
+  "9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", 
+  "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", 
+  "5:00 PM", "6:00 PM", "7:00 PM"
+];
 
 const Appointments = () => {
   const [selectedDate, setSelectedDate] = useState<Date>();
@@ -39,25 +46,53 @@ const Appointments = () => {
   // Add this ref to track if toast has been shown
   const toastShownRef = React.useRef(false);
 
-  const departments = [
-    'Cardiology', 'Neurology', 'Pediatrics', 'Orthopedics', 
-    'Ophthalmology', 'General Medicine', 'Gynecology', 'Dermatology'
-  ];
+  // State for dynamically loaded data
+  const [loadedDepartments, setLoadedDepartments] = useState<string[]>([]);
+  const [loadedDoctors, setLoadedDoctors] = useState<Record<string, string[]>>({});
+  const [isLoading, setIsLoading] = useState(true);
 
-  const doctors = {
-    'Cardiology': ['Dr. Rajesh Kumar', 'Dr. Priya Sharma', 'Dr. Amit Patel'],
-    'Neurology': ['Dr. Sanjay Gupta', 'Dr. Meera Singh', 'Dr. Vikram Rao'],
-    'Pediatrics': ['Dr. Sunita Malhotra', 'Dr. Ravi Agarwal', 'Dr. Kavya Reddy'],
-    'Orthopedics': ['Dr. Manoj Joshi', 'Dr. Deepika Nair', 'Dr. Suresh Kumar'],
-    'Ophthalmology': ['Dr. Anita Verma', 'Dr. Rohit Bansal', 'Dr. Lakshmi Iyer'],
-    'General Medicine': ['Dr. Ashok Tiwari', 'Dr. Rekha Jain', 'Dr. Mohan Das']
-  };
+  // Load departments and doctors from Firebase
+  useEffect(() => {
+    const loadDoctorsData = async () => {
+      try {
+        setIsLoading(true);
+        const doctorsData = await getDoctors();
+        
+        // Extract unique departments
+        const departments = Array.from(new Set(doctorsData.map(doc => doc.specialty))).filter(Boolean);
+        setLoadedDepartments(departments as string[]);
+        
+        // Group doctors by department
+        const doctorsByDepartment: Record<string, string[]> = {};
+        doctorsData.forEach(doctor => {
+          if (doctor.specialty && doctor.name) {
+            if (!doctorsByDepartment[doctor.specialty]) {
+              doctorsByDepartment[doctor.specialty] = [];
+            }
+            doctorsByDepartment[doctor.specialty].push(doctor.name);
+          }
+        });
+        setLoadedDoctors(doctorsByDepartment);
+        
+      } catch (error) {
+        console.error("Error loading doctors data:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadDoctorsData();
+  }, []);
 
-  const timeSlots = [
-    '09:00 AM', '09:30 AM', '10:00 AM', '10:30 AM', '11:00 AM', '11:30 AM',
-    '02:00 PM', '02:30 PM', '03:00 PM', '03:30 PM', '04:00 PM', '04:30 PM',
-    '05:00 PM', '05:30 PM', '06:00 PM', '06:30 PM', '07:00 PM', '07:30 PM'
-  ];
+  // Use the loaded departments or fallback to a default list
+  const departments = loadedDepartments.length > 0 
+    ? loadedDepartments 
+    : ['General Medicine', 'Cardiology', 'Neurology', 'Pediatrics', 'Orthopedics', 'Ophthalmology'];
+
+  // Use loaded doctors or empty array for the selected department
+  const doctors = formData.department && loadedDoctors[formData.department]
+    ? loadedDoctors[formData.department]
+    : [];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -205,7 +240,8 @@ const Appointments = () => {
     
     if (doctorParam && updatedFormData.department) {
       // Only set doctor if we have a valid department
-      const availableDoctors = doctors[updatedFormData.department as keyof typeof doctors] || [];
+      // Cast to string array to ensure find() is available
+      const availableDoctors = (doctors[updatedFormData.department] || []) as string[];
       const matchedDoctor = availableDoctors.find(doctor => 
         doctor.toLowerCase().includes(doctorParam.toLowerCase()) ||
         doctorParam.toLowerCase().includes(doctor.toLowerCase())
@@ -342,16 +378,20 @@ const Appointments = () => {
                         <Label>Department *</Label>
                         <Select 
                           value={formData.department} 
-                          onValueChange={(value) => setFormData({...formData, department: value})}
-                          disabled={isSubmitting}
+                          onValueChange={(value) => setFormData({...formData, department: value, doctor: ''})}
+                          disabled={isSubmitting || isLoading}
                         >
                           <SelectTrigger>
                             <SelectValue placeholder="Select department" />
                           </SelectTrigger>
                           <SelectContent>
-                            {departments.map((dept) => (
-                              <SelectItem key={dept} value={dept}>{dept}</SelectItem>
-                            ))}
+                            {isLoading ? (
+                              <SelectItem value="loading" disabled>Loading departments...</SelectItem>
+                            ) : (
+                              departments.map((dept) => (
+                                <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                              ))
+                            )}
                           </SelectContent>
                         </Select>
                       </div>
@@ -360,15 +400,19 @@ const Appointments = () => {
                         <Select 
                           value={formData.doctor} 
                           onValueChange={(value) => setFormData({...formData, doctor: value})}
-                          disabled={!formData.department || isSubmitting}
+                          disabled={!formData.department || isSubmitting || isLoading}
                         >
                           <SelectTrigger>
                             <SelectValue placeholder="Any available doctor" />
                           </SelectTrigger>
                           <SelectContent>
-                            {formData.department && doctors[formData.department as keyof typeof doctors]?.map((doctor) => (
-                              <SelectItem key={doctor} value={doctor}>{doctor}</SelectItem>
-                            ))}
+                            {isLoading ? (
+                              <SelectItem value="loading" disabled>Loading doctors...</SelectItem>
+                            ) : (
+                              doctors.map((doctor) => (
+                                <SelectItem key={doctor} value={doctor}>{doctor}</SelectItem>
+                              ))
+                            )}
                           </SelectContent>
                         </Select>
                       </div>

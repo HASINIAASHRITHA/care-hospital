@@ -53,6 +53,29 @@ This project is built with:
 - React
 - shadcn-ui
 - Tailwind CSS
+- Firebase (Firestore & Authentication)
+- Cloudinary (Image Storage & Optimization)
+
+## Configuration
+
+### Cloudinary Setup
+
+This project uses Cloudinary for image storage and optimization. To set up Cloudinary:
+
+1. Create a free account at [Cloudinary](https://cloudinary.com/)
+2. In your Cloudinary dashboard, create an upload preset:
+   - Go to Settings > Upload
+   - Click "Add upload preset"
+   - Set the preset name to "care hospital" (or update `CLOUDINARY_CONFIG.uploadPreset` in `src/lib/cloudinary.ts`)
+   - Set the signing mode to "Unsigned"
+   - Configure any transformations you want (optional)
+3. Update the `CLOUDINARY_CONFIG` in `src/lib/cloudinary.ts` with your cloud name
+
+### Firebase Setup
+
+This project uses Firebase for database and authentication. Configure your Firebase project and update the configuration in `src/config/firebase.ts`.
+
+Note: Firebase Storage is not used for image uploads - Cloudinary is used instead to avoid CORS issues.
 
 ## How can I deploy this project?
 

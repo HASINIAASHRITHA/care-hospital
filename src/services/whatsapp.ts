@@ -378,7 +378,7 @@ function formatPhoneNumber(phone: string): string {
 import { 
   generateMessageFromTemplate, 
   getTemplateById, 
-  logNotification 
+  createNotificationLog 
 } from './notificationTemplates';
 
 // Enhanced WhatsApp message sender that can use templates
@@ -512,7 +512,7 @@ Care Hospital Team
     if (response.success) {
       // Log the notification
       if (templateId) {
-        await logNotification({
+        await createNotificationLog({
           templateId,
           templateName,
           type: messageType,
@@ -608,7 +608,7 @@ export const sendSMSMessageWithTemplate = async (appointmentData: AppointmentMes
       
       // Log the notification
       if (templateId) {
-        await logNotification({
+        await createNotificationLog({
           templateId,
           templateName,
           type: messageType,
@@ -634,7 +634,7 @@ export const sendSMSMessageWithTemplate = async (appointmentData: AppointmentMes
       if (response.success) {
         // Log the notification
         if (templateId) {
-          await logNotification({
+          await createNotificationLog({
             templateId,
             templateName,
             type: messageType,
