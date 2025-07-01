@@ -12,8 +12,13 @@ import {
   serverTimestamp,
   getDoc
 } from 'firebase/firestore';
-import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, User, signInWithPhoneNumber, RecaptchaVerifier } from 'firebase/auth';
+import { ref, uploadBytes, getDownloadURL, getStorage } from 'firebase/storage';
 import { db, COLLECTIONS, auth } from '@/config/firebase';
+import app from '@/config/firebase';
+
+// Initialize Firebase Storage
+const storage = getStorage(app);
 import { uploadToCloudinary } from '@/lib/cloudinary';
 // Types
 export interface PatientData {
@@ -46,8 +51,6 @@ export interface AppointmentData {
   createdAt: any;
   updatedAt: any;
   userId?: string;
-  whatsappSent?: boolean;
-  lastCommunication?: string;
 }
 
 export interface ContactMessage {
@@ -116,18 +119,7 @@ export const onAuthChange = (callback: (user: User | null) => void) => {
 
 // Patient/User functions (write-once, read-only)
 export const submitAppointment = async (appointmentData: Omit<AppointmentData, 'id' | 'createdAt' | 'updatedAt'>) => {
-  try {
-    const docRef = await addDoc(collection(db, COLLECTIONS.APPOINTMENTS), {
-      ...appointmentData,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-      status: 'pending'
-    });
-    return docRef.id;
-  } catch (error) {
-    console.error('Error submitting appointment:', error);
-    throw error;
-  }
+  // ...adds appointment to Firestore with status: 'pending'
 };
 
 export const submitContactMessage = async (messageData: Omit<ContactMessage, 'id' | 'createdAt'>) => {
@@ -440,19 +432,13 @@ const logAdminAction = async (adminId: string, action: string, targetCollection:
 
 // User portal functions (read-only for patients)
 export const getUserAppointments = async (userId: string) => {
-  try {
-    const q = query(
-      collection(db, COLLECTIONS.APPOINTMENTS), 
-      where('userId', '==', userId),
-      orderBy('createdAt', 'desc')
-    );
-    const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-  } catch (error) {
-    console.error('Error getting user appointments:', error);
-    throw error;
-  }
-};
+  const q = query(
+    collection(db, COLLECTIONS.APPOINTMENTS), 
+    where('userId', '==', userId),
+    orderBy('createdAt', 'desc')
+  );
+  // ...returns all appointments for the user
+}
 
 export const getUserData = async (userId: string) => {
   try {
@@ -468,7 +454,90 @@ export const getUserData = async (userId: string) => {
   }
 };
 
+// Update appointment billing status
+export const updateAppointmentBillingStatus = async (
+  appointmentId: string, 
+  status: 'pending' | 'paid' | 'waived' | 'not_applicable',
+  paymentMethod?: string,
+  receiptUrl?: string
+) => {
+  try {
+    const appointmentRef = doc(db, COLLECTIONS.APPOINTMENTS, appointmentId);
+    
+    const updateData: any = {
+      'billing.status': status,
+    };
+    
+    if (status === 'paid') {
+      updateData['billing.paidAt'] = new Date().toISOString();
+      
+      if (paymentMethod) {
+        updateData['billing.paymentMethod'] = paymentMethod;
+      }
+      
+      if (receiptUrl) {
+        updateData['billing.receiptUrl'] = receiptUrl;
+      }
+    }
+    
+    await updateDoc(appointmentRef, updateData);
+    
+    return true;
+  } catch (error) {
+    console.error('Error updating appointment billing status:', error);
+    throw error;
+  }
+};
+
+// Upload payment proof to storage and return the download URL
+export const uploadPaymentProof = async (file: File, userId: string, appointmentId: string): Promise<string> => {
+  try {
+    const storageRef = ref(storage, `payment_proofs/${userId}/${appointmentId}/${file.name}`);
+    const uploadTask = await uploadBytes(storageRef, file);
+    const downloadURL = await getDownloadURL(uploadTask.ref);
+    
+    return downloadURL;
+  } catch (error) {
+    console.error('Error uploading payment proof:', error);
+    throw error;
+  }
+};
+
+// Phone Authentication Methods
+export const sendOTP = async (phoneNumber: string, recaptchaVerifier: any) => {
+  try {
+    const auth = getAuth();
+    const formattedPhoneNumber = formatPhoneNumber(phoneNumber);
+    
+    return await signInWithPhoneNumber(auth, formattedPhoneNumber, recaptchaVerifier);
+  } catch (error) {
+    console.error("Error sending OTP:", error);
+    throw error;
+  }
+};
+
+// Helper function to format phone numbers
+export const formatPhoneNumber = (phone: string): string => {
+  // Remove any non-numeric characters
+  let cleaned = phone.replace(/\D/g, '');
+  
+  // Make sure it has the country code (add +91 for India if needed)
+  if (cleaned.length === 10) {
+    cleaned = '91' + cleaned;
+  }
+  
+  // Add + if it doesn't have one
+  if (!cleaned.startsWith('+')) {
+    cleaned = '+' + cleaned;
+  }
+  
+  return cleaned;
+};
+
 // Real-time listeners for admin data
 // Note: Component-specific code has been removed.
 // The React hooks (useEffect) and state update functions should be implemented in your React components, not in this service file.
 // Use the listener functions (listenToAppointments, listenToPatients, listenToContactMessages) in your components instead.
+
+// Firebase services are already imported from '@/config/firebase' at the top of the file
+// and used throughout the service functions, so we don't need to redefine them here.

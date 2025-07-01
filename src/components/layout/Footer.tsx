@@ -78,7 +78,7 @@ const Footer = () => {
                 { name: 'Our Services', path: '/services' },
                 { name: 'Expert Doctors', path: '/doctors' },
                 { name: 'Book Appointment', path: '/appointments' },
-                { name: 'Patient Portal', path: '/portal' },
+                { name: 'Patient Profile', path: '/profile' }, // Changed from Portal to Profile
                 { name: 'Contact Us', path: '/contact' }
               ].map((link) => (
                 <Link 

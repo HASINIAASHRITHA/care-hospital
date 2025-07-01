@@ -39,7 +39,7 @@ const Header = () => {
     { name: 'Services', path: '/services', icon: null },
     { name: 'Symptom Checker', path: '/symptom-checker', icon: null },
     { name: 'Appointments', path: '/appointments', icon: Calendar },
-    { name: 'Portal', path: '/portal', icon: null },
+    { name: 'Profile', path: '/profile', icon: null },
     { name: 'Contact', path: '/contact', icon: null }
   ];
 

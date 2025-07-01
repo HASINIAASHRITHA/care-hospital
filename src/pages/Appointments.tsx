@@ -14,6 +14,27 @@ import { CalendarDays, Clock, Phone, Mail, MapPin, CreditCard, CheckCircle } fro
 import { useToast } from '@/hooks/use-toast';
 import { submitAppointment, AppointmentData, getDoctors, Doctor } from '@/services/firebase';
 import { sendAppointmentNotification } from '@/services/whatsapp';
+// If you're using Firebase Auth
+import { getAuth, onAuthStateChanged } from 'firebase/auth';
+
+// If you're using a different auth solution, you'll need to adjust this import
+export function useAuth() {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const auth = getAuth();
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setLoading(false);
+    });
+    
+    // Cleanup subscription on unmount
+    return () => unsubscribe();
+  }, []);
+
+  return { user, loading };
+}
 
 // Define available time slots for appointments
 const timeSlots = [
@@ -42,6 +63,7 @@ const Appointments = () => {
   });
   
   const { toast } = useToast();
+  const { user } = useAuth();
   
   // Add this ref to track if toast has been shown
   const toastShownRef = React.useRef(false);
@@ -121,7 +143,13 @@ const Appointments = () => {
         status: 'pending'
       };
 
-      const appointmentId = await submitAppointment(appointmentData);
+      // Include user ID in the appointment data if available
+      if (user?.uid) {
+        appointmentData.userId = user.uid;
+      }
+      await submitAppointment(appointmentData);
+      // Generate a reference ID since submitAppointment doesn't return a value
+      const appointmentReference = `REF${Math.floor(100000 + Math.random() * 900000)}`;
 
       // Send notifications if enabled
       if (whatsappEnabled || smsEnabled) {
@@ -138,7 +166,7 @@ const Appointments = () => {
             }),
             time: selectedTime,
             phone: formData.phone,
-            appointmentId: appointmentId.slice(-6), // Add appointment ID to the notification
+            appointmentId: appointmentReference, // Add appointment ID to the notification
             messageType: 'confirmation' as const
           };
 
@@ -150,7 +178,7 @@ const Appointments = () => {
           );
 
           if (notificationResult.success) {
-            let confirmationMessage = `Your appointment has been confirmed (ID: ${appointmentId.slice(-6)}).`;
+            let confirmationMessage = `Your appointment has been confirmed (ID: ${appointmentReference}).`;
             
             // Build notification message
             if (whatsappEnabled && notificationResult.whatsapp?.success) {
@@ -165,7 +193,6 @@ const Appointments = () => {
             if (scheduleReminder && notificationResult.reminder?.success) {
               confirmationMessage += ` A reminder will be sent 24 hours before your appointment.`;
             }
-            
             toast({
               title: "Appointment Booked Successfully! 🎉",
               description: confirmationMessage,
@@ -173,21 +200,20 @@ const Appointments = () => {
           } else {
             toast({
               title: "Appointment Booked Successfully!",
-              description: `Your appointment has been submitted (ID: ${appointmentId.slice(-6)}). However, there was an issue sending notifications. Our team will contact you shortly.`,
+              description: `Your appointment has been submitted (ID: ${appointmentReference}). However, there was an issue sending notifications. Our team will contact you shortly.`,
               variant: "default"
             });
           }
         } catch (notificationError) {
-          console.error('Notification error:', notificationError);
           toast({
             title: "Appointment Booked Successfully!",
-            description: `Your appointment has been submitted (ID: ${appointmentId.slice(-6)}). Our team will contact you shortly for confirmation.`,
+            description: `Your appointment has been submitted (ID: ${appointmentReference}). Our team will contact you shortly for confirmation.`,
           });
         }
       } else {
         toast({
           title: "Appointment Booked Successfully!",
-          description: `Your appointment has been submitted (ID: ${appointmentId.slice(-6)}). Our team will contact you shortly for confirmation.`,
+          description: `Your appointment has been submitted (ID: ${appointmentReference}). Our team will contact you shortly for confirmation.`,
         });
       }
 

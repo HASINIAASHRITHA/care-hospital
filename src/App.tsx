@@ -8,7 +8,7 @@ import Index from "./pages/Index";
 import Doctors from "./pages/Doctors";
 import Services from "./pages/Services";
 import Appointments from "./pages/Appointments";
-import Portal from "./pages/Portal";
+import Profile from "@/pages/Profile";
 import Contact from "./pages/Contact";
 import Admin from "./pages/Admin";
 import NotFound from "./pages/NotFound";
@@ -28,7 +28,7 @@ const App = () => (
             <Route path="/doctors" element={<Doctors />} />
             <Route path="/services" element={<Services />} />
             <Route path="/appointments" element={<Appointments />} />
-            <Route path="/portal" element={<Portal />} />
+            <Route path="/profile" element={<Profile />} />
             <Route path="/contact" element={<Contact />} />
             <Route path="/admin" element={<Admin />} />
             <Route path="/symptom-checker" element={<SymptomChecker />} />
