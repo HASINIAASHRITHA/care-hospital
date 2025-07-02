@@ -12,7 +12,7 @@ import {
   serverTimestamp,
   getDoc
 } from 'firebase/firestore';
-import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, User, signInWithPhoneNumber, RecaptchaVerifier } from 'firebase/auth';
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, User, signInWithPhoneNumber, RecaptchaVerifier, PhoneAuthProvider } from 'firebase/auth';
 import { ref, uploadBytes, getDownloadURL, getStorage } from 'firebase/storage';
 import { db, COLLECTIONS, auth } from '@/config/firebase';
 import app from '@/config/firebase';
@@ -504,14 +504,89 @@ export const uploadPaymentProof = async (file: File, userId: string, appointment
 };
 
 // Phone Authentication Methods
-export const sendOTP = async (phoneNumber: string, recaptchaVerifier: any) => {
+export const createRecaptchaVerifier = (containerId: string, invisibleMode = false) => {
+  try {
+    // Make sure we clear any existing verifier first
+    clearRecaptchaVerifier();
+
+    const auth = getAuth();
+    const recaptchaParams = {
+      size: invisibleMode ? 'invisible' : 'normal',
+      callback: () => {
+        console.log('reCAPTCHA resolved successfully');
+      },
+      'expired-callback': () => {
+        console.log('reCAPTCHA expired');
+      }
+    };
+
+    // Create and render a new recaptcha verifier
+    const recaptchaVerifier = new RecaptchaVerifier(auth, containerId, recaptchaParams);
+    
+    // Store reference to recaptcha verifier for later cleanup
+    window.recaptchaVerifier = recaptchaVerifier;
+    
+    return recaptchaVerifier;
+  } catch (error) {
+    console.error('Error creating reCAPTCHA verifier:', error);
+    throw error;
+  }
+};
+
+// Clear reCAPTCHA verifier to prevent DOM element issues
+export const clearRecaptchaVerifier = () => {
+  try {
+    if (window.recaptchaVerifier) {
+      window.recaptchaVerifier.clear();
+      window.recaptchaVerifier = undefined;
+    }
+  } catch (error) {
+    console.error('Error clearing reCAPTCHA verifier:', error);
+  }
+};
+
+export const sendOTP = async (phoneNumber: string, containerId: string) => {
   try {
     const auth = getAuth();
     const formattedPhoneNumber = formatPhoneNumber(phoneNumber);
+    console.log('Sending OTP to formatted number:', formattedPhoneNumber);
     
-    return await signInWithPhoneNumber(auth, formattedPhoneNumber, recaptchaVerifier);
+    // Create a fresh reCAPTCHA instance - simplified approach without preliminary check
+    let recaptchaVerifier;
+    try {
+      recaptchaVerifier = createRecaptchaVerifier(containerId);
+      await recaptchaVerifier.render();
+    } catch (recaptchaError) {
+      console.error("Error with reCAPTCHA:", recaptchaError);
+      throw new Error("Failed to initialize verification. Please refresh the page.");
+    }
+    
+    // Send the verification code directly
+    try {
+      const confirmationResult = await signInWithPhoneNumber(auth, formattedPhoneNumber, recaptchaVerifier);
+      console.log('OTP sent successfully');
+      return confirmationResult;
+    } catch (otpError: any) {
+      // Clean up reCAPTCHA if OTP sending fails
+      clearRecaptchaVerifier();
+      
+      console.error('OTP sending failed with code:', otpError.code);
+      
+      // Enhanced error messages
+      if (otpError.code === 'auth/invalid-phone-number') {
+        throw new Error("The phone number format is incorrect. Please use international format (e.g. +91XXXXXXXXXX).");
+      } else if (otpError.code === 'auth/quota-exceeded') {
+        throw new Error("SMS quota has been exceeded. Please try again later or contact support.");
+      } else if (otpError.code === 'auth/too-many-requests') {
+        throw new Error("Too many requests. Please try again later.");
+      } else if (otpError.code === 'auth/operation-not-allowed') {
+        throw new Error("Phone authentication is not enabled. Please contact support.");
+      } else {
+        throw otpError; // Re-throw other errors
+      }
+    }
   } catch (error) {
-    console.error("Error sending OTP:", error);
+    console.error("Error in sendOTP:", error);
     throw error;
   }
 };
@@ -534,10 +609,95 @@ export const formatPhoneNumber = (phone: string): string => {
   return cleaned;
 };
 
-// Real-time listeners for admin data
-// Note: Component-specific code has been removed.
-// The React hooks (useEffect) and state update functions should be implemented in your React components, not in this service file.
-// Use the listener functions (listenToAppointments, listenToPatients, listenToContactMessages) in your components instead.
+// Format for WhatsApp API (no + sign)
+export const formatPhoneForWhatsApp = (phone: string): string => {
+  // Remove any non-numeric characters including +
+  let cleaned = phone.replace(/\D/g, '');
+  
+  // Make sure it has the country code
+  if (cleaned.length === 10) {
+    cleaned = '91' + cleaned;
+  }
+  
+  return cleaned;
+};
+
+// Direct WhatsApp message sender using web API
+export const openWhatsAppMessage = (phone: string, message: string): boolean => {
+  try {
+    const formattedPhone = formatPhoneForWhatsApp(phone);
+    const encodedMessage = encodeURIComponent(message);
+    const whatsappUrl = `https://wa.me/${formattedPhone}?text=${encodedMessage}`;
+    
+    console.log('Opening WhatsApp with URL:', whatsappUrl);
+    
+    // Open WhatsApp in new tab
+    const newWindow = window.open(whatsappUrl, '_blank');
+    
+    // Check if window was blocked by popup blocker
+    if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+      console.warn('WhatsApp window was blocked by popup blocker');
+      return false;
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error opening WhatsApp:', error);
+    return false;
+  }
+};
+
+// Function to send appointment notification via WhatsApp
+export const sendAppointmentWhatsApp = (appointmentData: {
+  patientName: string;
+  doctor: string;
+  department: string;
+  date: string;
+  time: string;
+  phone: string;
+  status: 'pending' | 'confirmed' | 'completed' | 'cancelled' | 'rescheduled';
+}): boolean => {
+  try {
+    const { patientName, doctor, department, date, time, phone, status } = appointmentData;
+    
+    let message = '';
+    
+    // Customize message based on appointment status
+    switch(status) {
+      case 'confirmed':
+        message = `🏥 *CARE HOSPITAL - Appointment Confirmation*\n\nDear ${patientName},\n\nYour appointment has been *CONFIRMED* ✅\n\n📋 *Appointment Details:*\n👨‍⚕️ Doctor: ${doctor}\n🏥 Department: ${department}\n📅 Date: ${date}\n🕐 Time: ${time}\n\n📍 *Address:*\nCare Hospital\n123 Medical Center, New Delhi - 110001\n\n📞 *Hospital Contact:* +91 98765 43210\n\n⏰ *Please arrive 15 minutes before your scheduled time*\n\nThank you for choosing Care Hospital!`;
+        break;
+      case 'cancelled':
+        message = `🏥 *CARE HOSPITAL - Appointment Cancelled*\n\nDear ${patientName},\n\nYour appointment with Dr. ${doctor} scheduled for ${date} at ${time} has been cancelled.\n\nTo reschedule, please call our appointment desk at +91 98765 43210 or book online.\n\nWe apologize for any inconvenience caused.\n\nCare Hospital Team`;
+        break;
+      case 'rescheduled':
+        message = `🏥 *CARE HOSPITAL - Appointment Rescheduled*\n\nDear ${patientName},\n\nYour appointment with Dr. ${doctor} has been rescheduled to ${date} at ${time}.\n\nIf this time doesn't work for you, please call our appointment desk at +91 98765 43210.\n\nThank you for your understanding.\n\nCare Hospital Team`;
+        break;
+      case 'completed':
+        message = `🏥 *CARE HOSPITAL - Appointment Completed*\n\nDear ${patientName},\n\nThank you for visiting Dr. ${doctor} at Care Hospital. We hope your experience was satisfactory.\n\nIf you have any follow-up questions, please contact us at +91 98765 43210.\n\nWishing you good health!\n\nCare Hospital Team`;
+        break;
+      default:
+        message = `🏥 *CARE HOSPITAL - Appointment Update*\n\nDear ${patientName},\n\nRegarding your appointment with Dr. ${doctor} (${department}) on ${date} at ${time}.\n\nPlease contact our appointment desk at +91 98765 43210 for any queries.\n\nThank you for choosing Care Hospital!`;
+    }
+    
+    return openWhatsAppMessage(phone, message);
+  } catch (error) {
+    console.error('Error sending WhatsApp notification:', error);
+    return false;
+  }
+};
+
+// Add this to the global Window interface
+declare global {
+  interface Window {
+    recaptchaVerifier?: RecaptchaVerifier;
+  }
+}
 
 // Firebase services are already imported from '@/config/firebase' at the top of the file
 // and used throughout the service functions, so we don't need to redefine them here.
+
+// Test WhatsApp message sending
+const msg = encodeURIComponent("Your appointment with Dr. X is confirmed for July 2 at 10:00 AM.");
+const phone = "91XXXXXXXXXX"; // user number, no +
+window.open(`https://wa.me/${phone}?text=${msg}`, "_blank");

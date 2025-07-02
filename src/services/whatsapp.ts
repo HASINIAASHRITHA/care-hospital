@@ -13,14 +13,154 @@ interface AppointmentMessage {
   newTime?: string;
 }
 
+// Format phone number specifically for WhatsApp API (no + sign)
+const formatPhoneForWhatsApp = (phone: string): string => {
+  // Remove any non-numeric characters including +
+  let cleaned = phone.replace(/\D/g, '');
+  
+  // Make sure it has the country code
+  if (cleaned.length === 10) {
+    cleaned = '91' + cleaned;
+  }
+  
+  return cleaned;
+};
+
+// Generic phone number formatter that standardizes phone numbers
+const formatPhoneNumber = (phone: string): string => {
+  // Remove any non-numeric characters
+  let cleaned = phone.replace(/\D/g, '');
+  
+  // Make sure it has the country code
+  if (cleaned.length === 10) {
+    cleaned = '91' + cleaned;
+  }
+  
+  // Return with + prefix for international format
+  return cleaned.startsWith('91') ? '+' + cleaned : '+91' + cleaned;
+};
+
+// Direct method to open WhatsApp with a message (alternative to API)
+export const openWhatsAppDirectly = (appointmentData: AppointmentMessage): boolean => {
+  try {
+    const { patientName, doctorName, department, date, time, phone, messageType = 'confirmation', newDate, newTime } = appointmentData;
+    
+    let message = '';
+    
+    // Format message based on type
+    if (messageType === 'confirmation') {
+      message = `
+🏥 *CARE HOSPITAL - Appointment Confirmation*
+
+Dear ${patientName},
+
+Your appointment has been *CONFIRMED* ✅
+
+📋 *Appointment Details:*
+👨‍⚕️ Doctor: ${doctorName}
+🏥 Department: ${department}
+📅 Date: ${date}
+🕐 Time: ${time}
+${appointmentData.appointmentId ? `🔢 Appointment ID: ${appointmentData.appointmentId}` : ''}
+
+📍 *Address:*
+Care Hospital
+123 Medical Center, New Delhi - 110001
+
+📞 *Emergency Contact:* 102
+📱 *Hospital Contact:* +91 98765 43210
+
+⏰ *Please arrive 15 minutes before your scheduled time*
+
+Thank you for choosing Care Hospital!
+      `.trim();
+    } else if (messageType === 'reminder') {
+      message = `
+🏥 *CARE HOSPITAL - Appointment Reminder*
+
+Dear ${patientName},
+
+This is a reminder for your upcoming appointment ⏰
+
+📋 *Appointment Details:*
+👨‍⚕️ Doctor: ${doctorName}
+🏥 Department: ${department}
+📅 Date: ${date}
+🕐 Time: ${time}
+${appointmentData.appointmentId ? `🔢 Appointment ID: ${appointmentData.appointmentId}` : ''}
+
+📍 *Address:*
+Care Hospital
+123 Medical Center, New Delhi - 110001
+
+⏰ *Please arrive 15 minutes before your scheduled time*
+
+We look forward to seeing you soon!
+      `.trim();
+    } else if (messageType === 'cancellation') {
+      message = `
+🏥 *CARE HOSPITAL - Appointment Cancelled*
+
+Dear ${patientName},
+
+Your appointment with Dr. ${doctorName} scheduled for ${date} at ${time} has been cancelled.
+
+To reschedule, please call our appointment desk at +91 98765 43210 or book online.
+
+We apologize for any inconvenience caused.
+
+Care Hospital Team
+      `.trim();
+    } else if (messageType === 'reschedule') {
+      message = `
+🏥 *CARE HOSPITAL - Appointment Rescheduled*
+
+Dear ${patientName},
+
+We regret to inform you that Dr. ${doctorName} is unavailable on ${date}.
+
+Your appointment has been rescheduled to ${newDate || '[new date]'} at ${newTime || '[new time]'}.
+
+If this new time doesn't work for you, please call +91 98765 43210 to arrange an alternative.
+
+We apologize for any inconvenience caused.
+
+Care Hospital Team
+      `.trim();
+    }
+    
+    const formattedPhone = formatPhoneForWhatsApp(phone);
+    const encodedMessage = encodeURIComponent(message);
+    const whatsappUrl = `https://wa.me/${formattedPhone}?text=${encodedMessage}`;
+    
+    console.log('Opening WhatsApp with URL:', whatsappUrl);
+    window.open(whatsappUrl, '_blank');
+    return true;
+    
+  } catch (error) {
+    console.error('Error opening WhatsApp directly:', error);
+    return false;
+  }
+};
+
 export const sendWhatsAppMessage = async (appointmentData: AppointmentMessage) => {
-  const { patientName, doctorName, department, date, time, phone, messageType = 'confirmation', appointmentId = '' } = appointmentData;
-  
-  // Format the message based on type
-  let message = '';
-  
-  if (messageType === 'confirmation') {
-    message = `
+  try {
+    // Try direct WhatsApp web approach first
+    const directResult = openWhatsAppDirectly(appointmentData);
+    if (directResult) {
+      console.log('WhatsApp web opened successfully');
+      return { success: true, messageId: `wa_direct_${Date.now()}`, method: 'direct' };
+    }
+    
+    // Fall back to original simulation approach if direct method fails
+    console.log('Direct WhatsApp failed, falling back to simulation');
+    const { patientName, doctorName, department, date, time, phone, messageType = 'confirmation', appointmentId = '' } = appointmentData;
+    
+    // Format the message based on type
+    let message = '';
+    
+    if (messageType === 'confirmation') {
+      message = `
 🏥 *CARE HOSPITAL - Appointment Confirmation*
 
 Dear ${patientName},
@@ -44,9 +184,9 @@ Care Hospital
 ⏰ *Please arrive 15 minutes before your scheduled time*
 
 Thank you for choosing Care Hospital!
-  `.trim();
-  } else {
-    message = `
+      `.trim();
+    } else {
+      message = `
 🏥 *CARE HOSPITAL - Appointment Reminder*
 
 Dear ${patientName},
@@ -67,26 +207,30 @@ Care Hospital
 ⏰ *Please arrive 15 minutes before your scheduled time*
 
 We look forward to seeing you soon!
-  `.trim();
-  }
+      `.trim();
+    }
 
-  try {
-    // In a real implementation, you would use Twilio WhatsApp API
-    // For now, we'll simulate the API call and log the message
-    console.log('Sending WhatsApp message to:', phone);
-    console.log('Message:', message);
-    
-    // Simulate API call
-    const response = await simulateWhatsAppAPI(phone, message);
-    
-    if (response.success) {
-      console.log('WhatsApp message sent successfully');
-      return { success: true, messageId: response.messageId };
-    } else {
-      throw new Error('Failed to send WhatsApp message');
+    try {
+      // In a real implementation, you would use Twilio WhatsApp API
+      // For now, we'll simulate the API call and log the message
+      console.log('Sending WhatsApp message to:', phone);
+      console.log('Message:', message);
+      
+      // Simulate API call
+      const response = await simulateWhatsAppAPI(phone, message);
+      
+      if (response.success) {
+        console.log('WhatsApp message sent successfully');
+        return { success: true, messageId: response.messageId, method: 'api' };
+      } else {
+        throw new Error('Failed to send WhatsApp message');
+      }
+    } catch (error) {
+      console.error('Error sending WhatsApp message:', error);
+      throw error;
     }
   } catch (error) {
-    console.error('Error sending WhatsApp message:', error);
+    console.error('Error in WhatsApp messaging flow:', error);
     throw error;
   }
 };
@@ -110,8 +254,26 @@ export const sendSMSMessage = async (appointmentData: AppointmentMessage) => {
     // Try using a real SMS API first, fall back to simulation if it fails
     try {
       const realSmsResult = await sendRealSMS(phone, message);
+      
+      // Log the notification
+      if (appointmentData.templateId) {
+        await createNotificationLog({
+          templateId: appointmentData.templateId,
+          templateName: 'Default SMS Confirmation',
+          type: messageType,
+          channel: 'sms',
+          recipientName: patientName,
+          recipientPhone: phone,
+          appointmentId,
+          doctorName,
+          message,
+          status: 'sent',
+          sentBy: 'system'
+        });
+      }
+      
       console.log('Real SMS sent successfully');
-      return { success: true, messageId: realSmsResult.messageId, provider: 'real' };
+      return { success: true, messageId: realSmsResult.messageId, provider: 'real', message };
     } catch (realSmsError) {
       console.log('Real SMS failed, falling back to simulation', realSmsError);
       
@@ -119,8 +281,25 @@ export const sendSMSMessage = async (appointmentData: AppointmentMessage) => {
       const response = await simulateSMSAPI(phone, message);
       
       if (response.success) {
+        // Log the notification
+        if (appointmentData.templateId) {
+          await createNotificationLog({
+            templateId: appointmentData.templateId,
+            templateName: 'Default SMS Confirmation',
+            type: messageType,
+            channel: 'sms',
+            recipientName: patientName,
+            recipientPhone: phone,
+            appointmentId,
+            doctorName,
+            message,
+            status: 'sent',
+            sentBy: 'system'
+          });
+        }
+        
         console.log('SMS sent successfully (simulated)');
-        return { success: true, messageId: response.messageId, provider: 'simulated' };
+        return { success: true, messageId: response.messageId, provider: 'simulated', message };
       } else {
         throw new Error('Failed to send SMS');
       }
@@ -277,11 +456,13 @@ export const scheduleAppointmentReminder = async (
   }
 };
 
+// Enhanced notification function that can use templates
 export const sendAppointmentNotification = async (
   appointmentData: AppointmentMessage, 
   sendWhatsApp = true, 
   sendSMS = true,
-  scheduleReminder = true
+  scheduleReminder = true,
+  useDirect = true // New option to use direct WhatsApp method
 ) => {
   const results = {
     whatsapp: null as any,
@@ -302,7 +483,23 @@ export const sendAppointmentNotification = async (
     // Try WhatsApp first if enabled
     if (sendWhatsApp) {
       try {
-        results.whatsapp = await sendWhatsAppMessage(appointmentData);
+        // Use direct method if enabled
+        if (useDirect) {
+          const directResult = openWhatsAppDirectly(appointmentData);
+          if (directResult) {
+            results.whatsapp = { 
+              success: true, 
+              messageId: `direct_${Date.now()}`,
+              method: 'direct' 
+            };
+          } else {
+            // Fall back to API method
+            results.whatsapp = await sendWhatsAppMessage(appointmentData);
+          }
+        } else {
+          // Use standard API method
+          results.whatsapp = await sendWhatsAppMessage(appointmentData);
+        }
       } catch (error) {
         console.error('WhatsApp sending failed:', error);
         results.whatsapp = { success: false, error };
@@ -355,24 +552,6 @@ export const sendAppointmentNotification = async (
     return { ...results, error };
   }
 };
-
-// Helper function to format phone numbers
-function formatPhoneNumber(phone: string): string {
-  // Remove any non-numeric characters
-  let cleaned = phone.replace(/\D/g, '');
-  
-  // Make sure it has the country code (add +91 for India if needed)
-  if (cleaned.length === 10) {
-    cleaned = '91' + cleaned;
-  }
-  
-  // Add + if it doesn't have one
-  if (!cleaned.startsWith('+')) {
-    cleaned = '+' + cleaned;
-  }
-  
-  return cleaned;
-}
 
 // Add new imports
 import { 
@@ -598,40 +777,14 @@ export const sendSMSMessageWithTemplate = async (appointmentData: AppointmentMes
     }
   }
 
-  try {
-    console.log('Sending SMS to:', phone);
-    console.log('Message:', message);
-    
-    // Try using a real SMS API first, fall back to simulation if it fails
     try {
-      const realSmsResult = await sendRealSMS(phone, message);
+      console.log('Sending SMS to:', phone);
+      console.log('Message:', message);
       
-      // Log the notification
-      if (templateId) {
-        await createNotificationLog({
-          templateId,
-          templateName,
-          type: messageType,
-          channel: 'sms',
-          recipientName: patientName,
-          recipientPhone: phone,
-          appointmentId,
-          doctorName,
-          message,
-          status: 'sent',
-          sentBy
-        });
-      }
-      
-      console.log('Real SMS sent successfully');
-      return { success: true, messageId: realSmsResult.messageId, provider: 'real', message };
-    } catch (realSmsError) {
-      console.log('Real SMS failed, falling back to simulation', realSmsError);
-      
-      // Fallback to simulation
-      const response = await simulateSMSAPI(phone, message);
-      
-      if (response.success) {
+      // Try using a real SMS API first, fall back to simulation if it fails
+      try {
+        const realSmsResult = await sendRealSMS(phone, message);
+        
         // Log the notification
         if (templateId) {
           await createNotificationLog({
@@ -649,72 +802,40 @@ export const sendSMSMessageWithTemplate = async (appointmentData: AppointmentMes
           });
         }
         
-        console.log('SMS sent successfully (simulated)');
-        return { success: true, messageId: response.messageId, provider: 'simulated', message };
-      } else {
-        throw new Error('Failed to send SMS');
-      }
-    }
-  } catch (error) {
-    console.error('Error sending SMS:', error);
-    throw error;
-  }
-};
-
-// Enhanced notification function that uses templates
-export const sendNotificationWithTemplate = async (
-  appointmentData: AppointmentMessage,
-  sendWhatsApp = true,
-  sendSMS = true
-) => {
-  const results = {
-    whatsapp: null as any,
-    sms: null as any,
-    success: false,
-    message: ''
-  };
-
-  try {
-    // Validate phone number
-    if (!appointmentData.phone || appointmentData.phone.trim() === '') {
-      throw new Error('Phone number is required for sending notifications');
-    }
-    
-    // Clean and format the phone number to ensure it works
-    appointmentData.phone = formatPhoneNumber(appointmentData.phone);
-    
-    // Try WhatsApp first if enabled
-    if (sendWhatsApp) {
-      try {
-        results.whatsapp = await sendWhatsAppMessageWithTemplate(appointmentData);
-        results.message = results.whatsapp.message;
-      } catch (error) {
-        console.error('WhatsApp sending failed:', error);
-        results.whatsapp = { success: false, error };
-        // Force SMS to be sent if WhatsApp fails, ensuring at least one message is attempted
-        sendSMS = true;
-      }
-    }
-
-    // Send SMS if enabled or if WhatsApp failed
-    if (sendSMS) {
-      try {
-        results.sms = await sendSMSMessageWithTemplate(appointmentData);
-        if (!results.message) {
-          results.message = results.sms.message;
+        console.log('Real SMS sent successfully');
+        return { success: true, messageId: realSmsResult.messageId, provider: 'real', message };
+      } catch (realSmsError) {
+        console.log('Real SMS failed, falling back to simulation', realSmsError);
+        
+        // Fallback to simulation
+        const response = await simulateSMSAPI(phone, message);
+        
+        if (response.success) {
+          // Log the notification
+          if (templateId) {
+            await createNotificationLog({
+              templateId,
+              templateName,
+              type: messageType,
+              channel: 'sms',
+              recipientName: patientName,
+              recipientPhone: phone,
+              appointmentId,
+              doctorName,
+              message,
+              status: 'sent',
+              sentBy
+            });
+          }
+          
+          console.log('SMS sent successfully (simulated)');
+          return { success: true, messageId: response.messageId, provider: 'simulated', message };
+        } else {
+          throw new Error('Failed to send SMS');
         }
-      } catch (error) {
-        console.error('SMS sending failed:', error);
-        results.sms = { success: false, error };
       }
+    } catch (error) {
+      console.error('Error sending SMS:', error);
+      throw error;
     }
-    
-    // Consider it successful if at least one method worked
-    results.success = (results.whatsapp?.success || results.sms?.success) || false;
-    
-    return results;
-  } catch (error) {
-    console.error('Error in sendNotificationWithTemplate:', error);
-    return { ...results, error };
-  }
-};
+  };

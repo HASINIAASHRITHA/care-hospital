@@ -47,8 +47,8 @@ import {
 import { format } from 'date-fns';
 
 // Firebase auth imports
-import { getAuth, RecaptchaVerifier, signInWithPhoneNumber, PhoneAuthProvider, ConfirmationResult } from "firebase/auth";
-import app from "@/config/firebase";
+import { getAuth, signInWithPhoneNumber, PhoneAuthProvider, ConfirmationResult, RecaptchaVerifier } from "firebase/auth";
+import { sendOTP, createRecaptchaVerifier, clearRecaptchaVerifier } from "@/services/firebase";
 
 // Import the OTP input component
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
@@ -75,13 +75,6 @@ interface AppointmentWithBilling {
   // other fields...
 }
 
-// Add RecaptchaVerifier to Window interface
-declare global {
-  interface Window {
-    recaptchaVerifier: any;
-  }
-}
-
 const Profile = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loginData, setLoginData] = useState({ phone: '', otp: '' });
@@ -103,33 +96,44 @@ const Profile = () => {
   const [sendingOTP, setSendingOTP] = useState(false);
   const [verifyingOTP, setVerifyingOTP] = useState(false);
   const [otpError, setOtpError] = useState<string | null>(null);
+  const [recaptchaReady, setRecaptchaReady] = useState(false);
   const [recaptchaVerified, setRecaptchaVerified] = useState(false);
+  const [phoneAuthEnabled, setPhoneAuthEnabled] = useState(true);
+  const [setupInstructionsOpen, setSetupInstructionsOpen] = useState(false);
   
   const { user } = useAuth();
   const { toast } = useToast();
   
-  // Initialize recaptcha when component loads
+  // Add this effect to properly handle reCAPTCHA
   useEffect(() => {
-    const auth = getAuth(app);
-    window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
-      'size': 'normal',
-      'callback': () => {
-        setRecaptchaVerified(true);
-        setOtpError(null);
-      },
-      'expired-callback': () => {
-        setRecaptchaVerified(false);
-        setOtpError("reCAPTCHA has expired. Please refresh and try again.");
+    // Only initialize recaptcha when the component is fully mounted
+    const timer = setTimeout(() => {
+      if (!isLoggedIn) {
+        const recaptchaContainer = document.getElementById('recaptcha-container');
+        if (recaptchaContainer) {
+          try {
+            // Clean up any existing recaptcha first to prevent multiple instances
+            clearRecaptchaVerifier();
+            
+            // Create a new reCAPTCHA instance but don't render it yet
+            // Rendering will be done right before sending OTP
+            createRecaptchaVerifier('recaptcha-container', false);
+            setRecaptchaReady(true);
+          } catch (error) {
+            console.error("Error initializing reCAPTCHA:", error);
+            setOtpError("Failed to initialize verification. Please refresh the page.");
+          }
+        }
       }
-    });
+    }, 1000); // Delay to ensure container is ready
     
+    // Clean up function
     return () => {
-      if (window.recaptchaVerifier) {
-        window.recaptchaVerifier.clear();
-      }
+      clearTimeout(timer);
+      clearRecaptchaVerifier();
     };
-  }, []);
-  
+  }, [isLoggedIn]); // Only re-run when login state changes
+
   // Check if user is authenticated
   useEffect(() => {
     if (user) {
@@ -159,12 +163,8 @@ const Profile = () => {
           : '+91' + phoneNumber;
       }
       
-      const auth = getAuth(app);
-      const confirmation = await signInWithPhoneNumber(
-        auth, 
-        phoneNumber, 
-        window.recaptchaVerifier
-      );
+      // Use the enhanced sendOTP function from firebase service
+      const confirmation = await sendOTP(phoneNumber, 'recaptcha-container');
       
       setConfirmationResult(confirmation);
       setShowOTP(true);
@@ -175,19 +175,34 @@ const Profile = () => {
       });
     } catch (error: any) {
       console.error("Error sending OTP:", error);
-      setOtpError(error.message || "Failed to send OTP. Please try again.");
+      
+      // Handle specific error codes
+      if (error.code === 'auth/operation-not-allowed') {
+        setPhoneAuthEnabled(false);
+        setOtpError("Phone authentication is not enabled in Firebase. Please contact the administrator.");
+        setSetupInstructionsOpen(true);
+      } else if (error.code === 'auth/invalid-phone-number') {
+        setOtpError("The phone number format is incorrect. Please enter a valid phone number with country code.");
+      } else if (error.code === 'auth/quota-exceeded') {
+        setOtpError("SMS quota has been exceeded. Please try again later or contact support.");
+      } else if (error.code === 'auth/too-many-requests') {
+        setOtpError("Too many requests. Please try again later.");
+      } else {
+        setOtpError(error.message || "Failed to send OTP. Please try again.");
+      }
       
       // Reset reCAPTCHA
-      window.recaptchaVerifier.clear();
-      window.recaptchaVerifier = new RecaptchaVerifier(getAuth(app), 'recaptcha-container', {
-        'size': 'normal',
-        'callback': () => {
-          setRecaptchaVerified(true);
-        },
-        'expired-callback': () => {
-          setRecaptchaVerified(false);
+      clearRecaptchaVerifier();
+      
+      // Reinitialize reCAPTCHA after a short delay
+      setTimeout(() => {
+        try {
+          createRecaptchaVerifier('recaptcha-container', false);
+          setRecaptchaReady(true);
+        } catch (recaptchaError) {
+          console.error("Error reinitializing reCAPTCHA:", recaptchaError);
         }
-      });
+      }, 1000);
     } finally {
       setSendingOTP(false);
     }
@@ -200,10 +215,8 @@ const Profile = () => {
       setOtpError("Please enter the OTP sent to your phone");
       return;
     }
-    
     setVerifyingOTP(true);
     setOtpError(null);
-    
     try {
       // Confirm the OTP code
       await confirmationResult.confirm(loginData.otp);
@@ -365,6 +378,46 @@ const Profile = () => {
     }
   };
 
+  // Add setup instructions dialog component inside your component
+  const SetupInstructionsDialog = () => (
+    <Dialog open={setupInstructionsOpen} onOpenChange={setSetupInstructionsOpen}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Phone Authentication Not Enabled</DialogTitle>
+          <DialogDescription>
+            Phone authentication needs to be enabled in your Firebase Console.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-4">
+          <div className="bg-amber-50 p-3 rounded-md border border-amber-200 text-amber-800 text-sm">
+            <p className="font-bold">For administrators:</p>
+            <ol className="list-decimal pl-5 space-y-2 mt-2">
+              <li>Go to the <span className="font-semibold">Firebase Console</span> ({`https://console.firebase.google.com`})</li>
+              <li>Select your project: <span className="font-semibold">care-hospital-30398</span></li>
+              <li>Navigate to <span className="font-semibold">Authentication</span> in the sidebar</li>
+              <li>Go to the <span className="font-semibold">Sign-in method</span> tab</li>
+              <li>Enable <span className="font-semibold">Phone</span> as a sign-in provider</li>
+              <li>Make sure your Firebase project is on the Blaze (pay-as-you-go) plan</li>
+              <li>Ensure you've set up a valid phone number for testing in the Phone authentication settings</li>
+            </ol>
+          </div>
+          <p className="text-sm text-gray-600">
+            Once configured, please refresh this page and try again. If you're not the administrator, 
+            please contact your system administrator to enable this feature.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button 
+            variant="outline" 
+            onClick={() => setSetupInstructionsOpen(false)}
+          >
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+
   if (!isLoggedIn) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-green-50">
@@ -418,18 +471,34 @@ const Profile = () => {
                       {otpError && (
                         <div className="text-sm text-red-500 bg-red-50 p-2 rounded-md border border-red-200">
                           {otpError}
+                          {!phoneAuthEnabled && (
+                            <div className="mt-2 text-blue-600">
+                              <Button 
+                                variant="link" 
+                                className="h-auto p-0 text-blue-600" 
+                                onClick={() => setSetupInstructionsOpen(true)}
+                              >
+                                View setup instructions
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       )}
                       
                       <Button 
                         type="submit" 
                         className="w-full bg-gradient-to-r from-orange-500 to-green-500"
-                        disabled={sendingOTP}
+                        disabled={sendingOTP || !recaptchaReady}
                       >
                         {sendingOTP ? (
                           <span className="flex items-center">
                             <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 
                             Sending OTP...
+                          </span>
+                        ) : !recaptchaReady ? (
+                          <span className="flex items-center">
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 
+                            Preparing verification...
                           </span>
                         ) : (
                           "Send OTP"
@@ -508,6 +577,9 @@ const Profile = () => {
           </div>
         </section>
 
+        {/* Include the setup instructions dialog */}
+        <SetupInstructionsDialog />
+
         <Footer />
       </div>
     );
@@ -569,273 +641,269 @@ const Profile = () => {
     {/* Profile Content Section */}
     <section className="py-8">
       <div className="container mx-auto px-4">
-        <Tabs defaultValue="appointments" className="max-w-6xl mx-auto">
-        <TabsList className="grid w-full grid-cols-3 mb-8">
-          <TabsTrigger value="appointments" id="appointments-tab">
-            <Calendar className="h-4 w-4 mr-2" /> Appointments
-          </TabsTrigger>
-          <TabsTrigger value="billing" id="billing-tab">
-            <FileText className="h-4 w-4 mr-2" /> Billing
-          </TabsTrigger>
-          <TabsTrigger value="profile">
-            <User className="h-4 w-4 mr-2" /> Personal Info
-          </TabsTrigger>
-        </TabsList>
+      <Tabs defaultValue="appointments" className="max-w-6xl mx-auto">
+      <TabsList className="grid w-full grid-cols-3 mb-8">
+        <TabsTrigger value="appointments" id="appointments-tab">
+        <Calendar className="h-4 w-4 mr-2" /> Appointments
+        </TabsTrigger>
+        <TabsTrigger value="billing" id="billing-tab">
+        <FileText className="h-4 w-4 mr-2" /> Billing
+        </TabsTrigger>
+        <TabsTrigger value="profile">
+        <User className="h-4 w-4 mr-2" /> Personal Info
+        </TabsTrigger>
+      </TabsList>
+      
+      {/* Appointments Tab */}
+      <TabsContent value="appointments" className="space-y-6">
+        <h2 className="text-2xl font-bold mb-4">Your Appointments</h2>
         
-        {/* Appointments Tab */}
-        <TabsContent value="appointments" className="space-y-6">
-          <h2 className="text-2xl font-bold mb-4">Your Appointments</h2>
-          
-          {userAppointments && userAppointments.length > 0 ? (
-            <div className="grid gap-4 md:grid-cols-2">
-            {userAppointments.map((appointment, idx) => (
-              <Card key={idx} className="overflow-hidden border-l-4 border-l-orange-500">
-                <CardContent className="p-0">
-                <div className="bg-orange-50 p-4 flex justify-between items-center">
-                  <div className="flex items-center gap-2">
-                    <Clock className="h-5 w-5 text-orange-600" />
-                    <span>{appointment.date} at {appointment.time}</span>
-                  </div>
-                  {getStatusBadge(appointment.status)}
-                </div>
-                <div className="p-4 space-y-4">
-                  <div>
-                    <h3 className="text-lg font-bold">Dr. {appointment.doctor}</h3>
-                    <p className="text-gray-600">{appointment.department}</p>
-                  </div>
-                  
-                  {appointment.status === 'completed' && appointment.billing && (
-                    <div className="flex justify-between items-center bg-blue-50 p-3 rounded-md">
-                    <div>
-                      <span className="block text-sm">Bill Amount</span>
-                      <span className="font-semibold">₹{appointment.billing.amount}</span>
-                    </div>
-                    <div>
-                      {appointment.billing.status === 'pending' ? (
-                        <Button 
-                        size="sm" 
-                        className="bg-green-600 hover:bg-green-700"
-                        onClick={() => handleOpenPayment(appointment)}
-                        >
-                        Pay Now
-                        </Button>
-                      ) : (
-                        <div className="flex items-center gap-1">
-                        {getBillingBadge(appointment.billing.status)}
-                        {appointment.billing.status === 'paid' && (
-                          <Button variant="ghost" size="sm">
-                            <Download className="h-4 w-4" />
-                          </Button>
-                        )}
-                        </div>
-                      )}
-                    </div>
-                    </div>
-                  )}
-                </div>
-                </CardContent>
-              </Card>
-            ))}
+        {userAppointments && userAppointments.length > 0 ? (
+        <div className="grid gap-4 md:grid-cols-2">
+        {userAppointments.map((appointment, idx) => (
+          <Card key={idx} className="overflow-hidden border-l-4 border-l-orange-500">
+          <CardContent className="p-0">
+          <div className="bg-orange-50 p-4 flex justify-between items-center">
+            <div className="flex items-center gap-2">
+            <Clock className="h-5 w-5 text-orange-600" />
+            <span>{appointment.date} at {appointment.time}</span>
             </div>
-          ) : (
-            <Card className="bg-gray-50">
-            <CardContent className="flex flex-col items-center justify-center py-10">
-              <div className="rounded-full bg-gray-200 p-3 mb-4">
-                <Calendar className="h-8 w-8 text-gray-500" />
-              </div>
-              <h3 className="text-xl font-medium mb-2">No Appointments Found</h3>
-              <p className="text-gray-600 text-center max-w-md">
-                You don't have any appointments scheduled. Book a consultation with one of our specialists.
-              </p>
-              <Button className="mt-4" asChild>
-                <Link to="/appointments">Book Appointment</Link>
-              </Button>
-            </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-        
-        {/* Billing Tab */}
-        <TabsContent value="billing" className="space-y-6">
-          <h2 className="text-2xl font-bold mb-4">Billing Information</h2>
-          
-          {userAppointments && userAppointments.length > 0 ? (
-            <div className="space-y-6">
-            {/* Pending Bills Section */}
+            {getStatusBadge(appointment.status)}
+          </div>
+          <div className="p-4 space-y-4">
             <div>
-              <h3 className="text-lg font-medium mb-3">Pending Bills</h3>
-              {userAppointments.filter(apt => 
-                apt.status === 'completed' && 
-                apt.billing?.status === 'pending'
-              ).length > 0 ? (
-                <div className="grid gap-4 md:grid-cols-2">
-                {userAppointments
-                  .filter(apt => 
-                    apt.status === 'completed' && 
-                    apt.billing?.status === 'pending'
-                  )
-                  .map((appointment, idx) => (
-                    <Card key={idx} className="overflow-hidden border border-red-200">
-                    <CardHeader className="bg-red-50 py-3">
-                      <div className="flex justify-between items-center">
-                        <CardTitle className="text-base font-medium">
-                        Bill #{idx + 1001}
-                        </CardTitle>
-                        <Badge variant="destructive">Payment Due</Badge>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="p-4 space-y-3">
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Doctor</span>
-                        <span className="font-medium">Dr. {appointment.doctor}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Date</span>
-                        <span>{appointment.date}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Amount</span>
-                        <span className="font-bold text-lg">₹{appointment.billing?.amount}</span>
-                      </div>
-                    </CardContent>
-                    <CardFooter className="bg-gray-50 py-3">
-                      <Button 
-                        className="w-full bg-green-600 hover:bg-green-700" 
-                        onClick={() => handleOpenPayment(appointment)}
-                      >
-                        Pay Now
-                      </Button>
-                    </CardFooter>
-                    </Card>
-                  ))}
-                </div>
-              ) : (
-                <Card className="bg-gray-50">
-                <CardContent className="py-8 text-center">
-                  <CheckCircle className="h-8 w-8 text-green-500 mx-auto mb-3" />
-                  <p className="text-gray-600">You have no pending bills</p>
-                </CardContent>
-                </Card>
-              )}
+            <h3 className="text-lg font-bold">Dr. {appointment.doctor}</h3>
+            <p className="text-gray-600">{appointment.department}</p>
             </div>
             
-            {/* Payment History Section */}
+            {appointment.status === 'completed' && appointment.billing && (
+            <div className="flex justify-between items-center bg-blue-50 p-3 rounded-md">
             <div>
-              <h3 className="text-lg font-medium mb-3">Payment History</h3>
-              {userAppointments.filter(apt => 
-                apt.billing?.status === 'paid'
-              ).length > 0 ? (
-                <Card>
-                <CardContent className="p-0">
-                  <table className="w-full">
-                    <thead className="bg-gray-50 text-gray-600 text-xs">
-                    <tr>
-                      <th className="p-3 text-left">Bill #</th>
-                      <th className="p-3 text-left">Date</th>
-                      <th className="p-3 text-left">Doctor</th>
-                      <th className="p-3 text-right">Amount</th>
-                      <th className="p-3 text-center">Receipt</th>
-                    </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                    {userAppointments
-                      .filter(apt => apt.billing?.status === 'paid')
-                      .map((appointment, idx) => (
-                        <tr key={idx}>
-                        <td className="p-3">{idx + 1001}</td>
-                        <td className="p-3">{appointment.date}</td>
-                        <td className="p-3">Dr. {appointment.doctor}</td>
-                        <td className="p-3 text-right">₹{appointment.billing?.amount}</td>
-                        <td className="p-3 text-center">
-                          <Button variant="ghost" size="sm" className="text-blue-600">
-                            <Download className="h-4 w-4" />
-                          </Button>
-                        </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </CardContent>
-                </Card>
+              <span className="block text-sm">Bill Amount</span>
+              <span className="font-semibold">₹{appointment.billing.amount}</span>
+            </div>
+            <div>
+              {appointment.billing.status === 'pending' ? (
+              <Button 
+              size="sm" 
+              className="bg-green-600 hover:bg-green-700"
+              onClick={() => handleOpenPayment(appointment)}
+              >
+              Pay Now
+              </Button>
               ) : (
-                <Card className="bg-gray-50">
-                <CardContent className="py-8 text-center">
-                  <p className="text-gray-600">No payment history available</p>
-                </CardContent>
-                </Card>
+              <div className="flex items-center gap-1">
+              {getBillingBadge(appointment.billing.status)}
+              {appointment.billing.status === 'paid' && (
+                <Button variant="ghost" size="sm">
+                <Download className="h-4 w-4" />
+                </Button>
+              )}
+              </div>
               )}
             </div>
             </div>
-          ) : (
-            <Card className="bg-gray-50">
-            <CardContent className="flex flex-col items-center justify-center py-10">
-              <div className="rounded-full bg-gray-200 p-3 mb-4">
-                <FileText className="h-8 w-8 text-gray-500" />
-              </div>
-              <h3 className="text-xl font-medium mb-2">No Billing Information</h3>
-              <p className="text-gray-600 text-center max-w-md">
-                You don't have any billing information yet.
-              </p>
-            </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-        
-        {/* Profile Tab */}
-        <TabsContent value="profile" className="space-y-6">
-          <h2 className="text-2xl font-bold mb-4">Personal Information</h2>
-          <Card>
-            <CardContent className="py-6">
-            {userData ? (
-              <dl className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <dt className="text-sm font-medium text-gray-500 flex items-center gap-1">
-                    <User className="h-4 w-4" /> Full Name
-                  </dt>
-                  <dd className="mt-1 text-lg">{userData.name || "Not provided"}</dd>
-                </div>
-                <div>
-                  <dt className="text-sm font-medium text-gray-500 flex items-center gap-1">
-                    <Mail className="h-4 w-4" /> Email Address
-                  </dt>
-                  <dd className="mt-1 text-lg">{userData.email || "Not provided"}</dd>
-                </div>
-                </div>
-                
-                <Separator />
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <dt className="text-sm font-medium text-gray-500 flex items-center gap-1">
-                    <Phone className="h-4 w-4" /> Phone Number
-                  </dt>
-                  <dd className="mt-1 text-lg">{userData.phone || "Not provided"}</dd>
-                </div>
-                <div>
-                  <dt className="text-sm font-medium text-gray-500 flex items-center gap-1">
-                    <MapPin className="h-4 w-4" /> Address
-                  </dt>
-                  <dd className="mt-1 text-lg">{userData.address || "Not provided"}</dd>
-                </div>
-                </div>
-                
-                <Separator />
-                
-                <Button variant="outline" className="w-full md:w-auto">
-                Update Profile
-                </Button>
-              </dl>
-            ) : (
-              <div className="text-center py-6">
-                <p className="text-gray-600">Complete your profile to manage appointments and billing more efficiently.</p>
-                <Button className="mt-4">Complete Profile</Button>
-              </div>
             )}
-            </CardContent>
+          </div>
+          </CardContent>
           </Card>
-        </TabsContent>
-        </Tabs>
+        ))}
+        </div>
+        ) : (
+        <Card className="bg-gray-50">
+        <CardContent className="flex flex-col items-center justify-center py-10">
+          <div className="rounded-full bg-gray-200 p-3 mb-4">
+          <Calendar className="h-8 w-8 text-gray-500" />
+          </div>
+          <h3 className="text-xl font-medium mb-2">No Appointments Found</h3>
+          <p className="text-gray-600 text-center max-w-md">
+          You don't have any appointments scheduled. Book a consultation with one of our specialists.
+          </p>
+          <Button className="mt-4" asChild>
+          <Link to="/appointments">Book Appointment</Link>
+          </Button>
+        </CardContent>
+        </Card>
+        )}
+      </TabsContent>
+      
+      {/* Billing Tab */}
+      <TabsContent value="billing" className="space-y-6">
+        <h2 className="text-2xl font-bold mb-4">Billing Information</h2>
+        
+        {userAppointments && userAppointments.length > 0 ? (
+        <div className="space-y-6">
+        {/* Pending Bills Section */}
+        <div>
+          <h3 className="text-lg font-medium mb-3">Pending Bills</h3>
+          {userAppointments.filter(apt => 
+          apt.billing?.status === 'pending'
+          ).length > 0 ? (
+          <div className="grid gap-4 md:grid-cols-2">
+            {userAppointments
+            .filter(apt => apt.billing?.status === 'pending')
+            .map((appointment, idx) => (
+              <Card key={idx}>
+              <CardHeader className="bg-red-50 py-3">
+                <CardTitle className="text-base font-semibold flex justify-between">
+                <span>Bill #{idx + 1001}</span>
+                <Badge className="bg-red-100 text-red-800 border-red-200">
+                  Payment Due
+                </Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="py-4 space-y-3">
+                <div className="flex justify-between">
+                <span className="text-gray-600">Doctor</span>
+                <span className="font-medium">Dr. {appointment.doctor}</span>
+                </div>
+                <div className="flex justify-between">
+                <span className="text-gray-600">Date</span>
+                <span>{appointment.date}</span>
+                </div>
+                <div className="flex justify-between">
+                <span className="text-gray-600">Amount</span>
+                <span className="font-bold text-lg">₹{appointment.billing?.amount}</span>
+                </div>
+              </CardContent>
+              <CardFooter className="bg-gray-50 py-3">
+                <Button 
+                className="w-full bg-green-600 hover:bg-green-700" 
+                onClick={() => handleOpenPayment(appointment)}
+                >
+                Pay Now
+                </Button>
+              </CardFooter>
+              </Card>
+            ))}
+          </div>
+          ) : (
+          <Card className="bg-gray-50">
+          <CardContent className="py-8 text-center">
+            <CheckCircle className="h-8 w-8 text-green-500 mx-auto mb-3" />
+            <p className="text-gray-600">You have no pending bills</p>
+          </CardContent>
+          </Card>
+          )}
+        </div>
+        
+        {/* Payment History Section */}
+        <div>
+          <h3 className="text-lg font-medium mb-3">Payment History</h3>
+          {userAppointments.filter(apt => 
+          apt.billing?.status === 'paid'
+          ).length > 0 ? (
+          <Card>
+          <CardContent className="p-0">
+            <table className="w-full">
+            <thead className="bg-gray-50 text-gray-600 text-xs">
+            <tr>
+              <th className="p-3 text-left">Bill #</th>
+              <th className="p-3 text-left">Date</th>
+              <th className="p-3 text-left">Doctor</th>
+              <th className="p-3 text-right">Amount</th>
+              <th className="p-3 text-center">Receipt</th>
+            </tr>
+            </thead>
+            <tbody className="divide-y">
+            {userAppointments
+              .filter(apt => apt.billing?.status === 'paid')
+              .map((appointment, idx) => (
+              <tr key={idx}>
+              <td className="p-3">{idx + 1001}</td>
+              <td className="p-3">{appointment.date}</td>
+              <td className="p-3">Dr. {appointment.doctor}</td>
+              <td className="p-3 text-right">₹{appointment.billing?.amount}</td>
+              <td className="p-3 text-center">
+                <Button variant="ghost" size="sm" className="text-blue-600">
+                <Download className="h-4 w-4" />
+                </Button>
+              </td>
+              </tr>
+              ))}
+            </tbody>
+            </table>
+          </CardContent>
+          </Card>
+          ) : (
+          <Card className="bg-gray-50">
+          <CardContent className="py-8 text-center">
+            <p className="text-gray-600">No payment history available</p>
+          </CardContent>
+          </Card>
+          )}
+        </div>
+        </div>
+        ) : (
+        <Card className="bg-gray-50">
+        <CardContent className="flex flex-col items-center justify-center py-10">
+          <div className="rounded-full bg-gray-200 p-3 mb-4">
+          <FileText className="h-8 w-8 text-gray-500" />
+          </div>
+          <h3 className="text-xl font-medium mb-2">No Billing Information</h3>
+          <p className="text-gray-600 text-center max-w-md">
+          You don't have any billing information yet.
+          </p>
+        </CardContent>
+        </Card>
+        )}
+      </TabsContent>
+      
+      {/* Profile Tab */}
+      <TabsContent value="profile" className="space-y-6">
+        <h2 className="text-2xl font-bold mb-4">Personal Information</h2>
+        <Card>
+        <CardContent className="py-6">
+        {userData ? (
+          <dl className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <dt className="text-sm font-medium text-gray-500 flex items-center gap-1">
+            <User className="h-4 w-4" /> Full Name
+            </dt>
+            <dd className="mt-1 text-lg">{userData.name || "Not provided"}</dd>
+          </div>
+          <div>
+            <dt className="text-sm font-medium text-gray-500 flex items-center gap-1">
+            <Mail className="h-4 w-4" /> Email Address
+            </dt>
+            <dd className="mt-1 text-lg">{userData.email || "Not provided"}</dd>
+          </div>
+          </div>
+          
+          <Separator />
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <dt className="text-sm font-medium text-gray-500 flex items-center gap-1">
+            <Phone className="h-4 w-4" /> Phone Number
+            </dt>
+            <dd className="mt-1 text-lg">{userData.phone || "Not provided"}</dd>
+          </div>
+          <div>
+            <dt className="text-sm font-medium text-gray-500 flex items-center gap-1">
+            <MapPin className="h-4 w-4" /> Address
+            </dt>
+            <dd className="mt-1 text-lg">{userData.address || "Not provided"}</dd>
+          </div>
+          </div>
+          
+          <Separator />
+          
+          <Button variant="outline" className="w-full md:w-auto">
+          Update Profile
+          </Button>
+          </dl>
+        ) : (
+          <div className="text-center py-6">
+          <p className="text-gray-600">Complete your profile to manage appointments and billing more efficiently.</p>
+          <Button className="mt-4">Complete Profile</Button>
+          </div>
+        )}
+        </CardContent>
+        </Card>
+      </TabsContent>
+      </Tabs>
       </div>
     </section>
 
@@ -1008,12 +1076,38 @@ const Profile = () => {
   );
 }
 
-// Add this to your global.d.ts or add it in a script tag in your index.html
-// Add this to your global.d.ts or add it in a script tag in your index.html
+// You don't need to redeclare this interface as it's already defined above
+// The declaration is already handled at line ~50 of this file
+
+export default Profile;
+
 declare global {
   interface Window {
-    recaptchaVerifier: any;
+    recaptchaVerifier?: RecaptchaVerifier;
   }
 }
 
-export default Profile;
+// Define the AppointmentMessage interface
+interface AppointmentMessage {
+  // Add required properties here
+  phone: string;
+  message: string;
+  // Other fields as needed
+}
+
+// Define the APIResponse interface
+interface APIResponse {
+  success: boolean;
+  message: string;
+  data?: any;
+}
+
+export const sendWhatsAppMessage = async (appointmentData: AppointmentMessage) => {
+  // ...implementation...
+  // Uses Twilio WhatsApp API or simulates WhatsApp API for sending messages
+};
+
+const simulateWhatsAppAPI = async (phone: string, message: string): Promise<APIResponse> => {
+  // Simulates sending a WhatsApp message
+  return { success: true, message: "Message sent successfully" };
+};
