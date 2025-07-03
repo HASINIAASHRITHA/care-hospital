@@ -251,51 +251,75 @@ export const sendSMSMessage = async (appointmentData: AppointmentMessage) => {
     console.log('Sending SMS to:', phone);
     console.log('Message:', message);
     
-    // Try using a real SMS API first, fall back to simulation if it fails
+    // Try using a real SMS API first, but don't wait for it to fail
+    // Instead, we'll set a timeout to ensure we don't block the UI
+    let smsSuccess = false;
+    
     try {
-      const realSmsResult = await sendRealSMS(phone, message);
+      // Use Promise.race to timeout after 3 seconds
+      const realSmsResult = await Promise.race([
+        sendRealSMS(phone, message),
+        new Promise<any>((_, reject) => 
+          setTimeout(() => reject(new Error("SMS API timeout")), 3000)
+        )
+      ]);
       
-      // Log the notification
-      if (appointmentData.templateId) {
-        await createNotificationLog({
-          templateId: appointmentData.templateId,
-          templateName: 'Default SMS Confirmation',
-          type: messageType,
-          channel: 'sms',
-          recipientName: patientName,
-          recipientPhone: phone,
-          appointmentId,
-          doctorName,
-          message,
-          status: 'sent',
-          sentBy: 'system'
-        });
+      if (realSmsResult && realSmsResult.success) {
+        smsSuccess = true;
+        
+        // Log the notification
+        if (appointmentData.templateId) {
+          try {
+            await createNotificationLog({
+              templateId: appointmentData.templateId,
+              templateName: 'Default SMS Confirmation',
+              type: messageType,
+              channel: 'sms',
+              recipientName: patientName,
+              recipientPhone: phone,
+              appointmentId,
+              doctorName,
+              message,
+              status: 'sent',
+              sentBy: 'system'
+            });
+          } catch (logError) {
+            console.error("Error logging notification:", logError);
+          }
+        }
+        
+        console.log('Real SMS sent successfully');
+        return { success: true, messageId: realSmsResult.messageId, provider: 'real', message };
       }
-      
-      console.log('Real SMS sent successfully');
-      return { success: true, messageId: realSmsResult.messageId, provider: 'real', message };
     } catch (realSmsError) {
-      console.log('Real SMS failed, falling back to simulation', realSmsError);
-      
+      console.log('Real SMS failed or timed out, falling back to simulation', realSmsError);
+    }
+    
+    // Only proceed to simulation if real SMS failed
+    if (!smsSuccess) {
       // Fallback to simulation
       const response = await simulateSMSAPI(phone, message);
       
       if (response.success) {
         // Log the notification
         if (appointmentData.templateId) {
-          await createNotificationLog({
-            templateId: appointmentData.templateId,
-            templateName: 'Default SMS Confirmation',
-            type: messageType,
-            channel: 'sms',
-            recipientName: patientName,
-            recipientPhone: phone,
-            appointmentId,
-            doctorName,
-            message,
-            status: 'sent',
-            sentBy: 'system'
-          });
+          try {
+            await createNotificationLog({
+              templateId: appointmentData.templateId,
+              templateName: 'Default SMS Confirmation',
+              type: messageType,
+              channel: 'sms',
+              recipientName: patientName,
+              recipientPhone: phone,
+              appointmentId,
+              doctorName,
+              message,
+              status: 'sent',
+              sentBy: 'system'
+            });
+          } catch (logError) {
+            console.error("Error logging notification:", logError);
+          }
         }
         
         console.log('SMS sent successfully (simulated)');
@@ -313,6 +337,7 @@ export const sendSMSMessage = async (appointmentData: AppointmentMessage) => {
 interface APIResponse {
   success: boolean;
   messageId: string;
+  error?: any; // Adding optional error property
 }
 
 // Add a function to send real SMS through a simple HTTP API (using fetch)
@@ -328,12 +353,26 @@ const sendRealSMS = async (phone: string, message: string): Promise<APIResponse>
   }
   
   try {
-    // You can use services like Twilio, FastSMS, MSG91, etc.
-    // This is a placeholder for the actual API call
+    // For browser environments, use import.meta.env or window.env if available
+    // Otherwise fall back to hardcoded testing credentials
+    // In production, these would be set through environment variables
+    const apiKey = 
+      (window as any)?.env?.SMS_API_KEY || 
+      import.meta?.env?.VITE_SMS_API_KEY || 
+      'demo_api_key_for_testing';
     
-    // Example using a simple API (replace with your preferred SMS gateway)
-    const apiKey = process.env.SMS_API_KEY || 'your-api-key';
-    const apiUrl = process.env.SMS_API_URL || 'https://api.textlocal.in/send/';
+    const apiUrl = 
+      (window as any)?.env?.SMS_API_URL || 
+      import.meta?.env?.VITE_SMS_API_URL || 
+      'https://api.textlocal.in/send/';
+    
+    console.log(`Attempting to send SMS using API: ${apiUrl} (key available: ${!!apiKey})`);
+    
+    // Check if we have enough info to make a real API call
+    if (apiKey === 'demo_api_key_for_testing') {
+      console.warn('Using demo API key - SMS will be simulated instead of sent');
+      throw new Error('No valid API key available for SMS gateway');
+    }
     
     const response = await fetch(apiUrl, {
       method: 'POST',
@@ -361,7 +400,13 @@ const sendRealSMS = async (phone: string, message: string): Promise<APIResponse>
     };
   } catch (error) {
     console.error('Real SMS sending failed:', error);
-    throw error;
+    // Instead of propagating the error, we'll return a failure object
+    // This allows the code to continue and try alternative messaging methods
+    return {
+      success: false,
+      messageId: '',
+      error: error
+    };
   }
 };
 

@@ -69,10 +69,10 @@ const Header = () => {
 
       {/* Enhanced Main Header */}
       <header className={`fixed w-full z-50 transition-all duration-500 ${
-        isScrolled 
-          ? 'bg-white/95 backdrop-blur-xl shadow-2xl border-b border-gray-100' 
-          : 'bg-transparent'
-      }`}>
+  isScrolled 
+    ? 'bg-white/95 backdrop-blur-xl shadow-2xl border-b border-gray-100' 
+    : 'bg-transparent'
+}`}>
         <div className="container mx-auto px-3 sm:px-4">
           <div className="flex items-center justify-between h-16 md:h-20">
             {/* Premium Logo - Responsive sizing */}
@@ -136,24 +136,30 @@ const Header = () => {
               </Button>
             </div>
 
-            {/* Enhanced Mobile Menu Button - Bigger touch target */}
+            {/* Enhanced Mobile Menu Button - Improved visibility with stronger contrast */}
             <button
-              className="lg:hidden p-2 sm:p-3 rounded-xl transition-all duration-300 touch-manipulation"
+              className={`lg:hidden p-2 sm:p-3 rounded-xl transition-all duration-300 touch-manipulation ${
+                isMenuOpen 
+                  ? 'bg-blue-600' 
+                  : isScrolled 
+                    ? 'bg-blue-600 shadow-md' 
+                    : 'bg-blue-600 shadow-lg'
+              }`}
               onClick={() => setIsMenuOpen(!isMenuOpen)}
               aria-label={isMenuOpen ? "Close menu" : "Open menu"}
               aria-expanded={isMenuOpen}
             >
               {isMenuOpen ? (
-                <X className={`w-6 h-6 ${isScrolled ? 'text-gray-900' : 'text-white'}`} />
+                <X className="w-6 h-6 text-white" />
               ) : (
-                <Menu className={`w-6 h-6 ${isScrolled ? 'text-gray-900' : 'text-white'}`} />
+                <Menu className="w-6 h-6 text-white" />
               )}
             </button>
           </div>
 
           {/* Enhanced Mobile Menu - Full screen with animations */}
           {isMenuOpen && (
-            <div className="lg:hidden fixed inset-0 top-[calc(4rem+theme(spacing.8))] bg-white/95 backdrop-blur-xl shadow-2xl z-40 flex flex-col animate-in slide-in-from-top duration-300">
+            <div className="lg:hidden fixed inset-0 top-[calc(4rem+theme(spacing.8))] bg-gradient-to-br from-blue-800 via-blue-900 to-emerald-900 shadow-2xl z-40 flex flex-col animate-in slide-in-from-top duration-300">
               <nav className="flex flex-col overflow-y-auto flex-1">
                 {navItems.map((item) => {
                   const isActive = location.pathname === item.path;
@@ -163,12 +169,18 @@ const Header = () => {
                       to={item.path}
                       className={`flex items-center space-x-3 px-6 py-5 transition-all duration-300 ${
                         isActive 
-                          ? 'bg-gradient-to-r from-blue-50 to-emerald-50 text-blue-700 border-r-4 border-blue-500' 
-                          : 'text-gray-700 hover:bg-gray-50'
+                          ? 'bg-gradient-to-r from-blue-500 to-emerald-500 text-white border-r-4 border-white' 
+                          : 'bg-blue-700/40 text-white hover:bg-gradient-to-r hover:from-blue-700 hover:to-emerald-700 border-b border-blue-600/30'
                       }`}
                       onClick={() => setIsMenuOpen(false)}
                     >
-                      {item.icon && <item.icon className="w-5 h-5" />}
+                      {item.icon ? (
+                        <item.icon className="w-5 h-5" />
+                      ) : (
+                        <div className="w-5 h-5 rounded-full bg-white/30 flex items-center justify-center">
+                          <span className="text-xs text-white font-bold">{item.name.charAt(0)}</span>
+                        </div>
+                      )}
                       <span className="font-medium">{item.name}</span>
                     </Link>
                   );
@@ -176,8 +188,8 @@ const Header = () => {
               </nav>
               
               {/* Mobile CTA button - always visible at bottom */}
-              <div className="p-6 border-t border-gray-100 mt-auto">
-                <Button asChild className="w-full bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-700 hover:to-blue-700 rounded-xl shadow-lg py-6 text-base">
+              <div className="p-6 border-t border-blue-700/50 mt-auto">
+                <Button asChild className="w-full bg-gradient-to-r from-emerald-500 to-blue-500 hover:from-emerald-600 hover:to-blue-600 rounded-xl shadow-lg py-6 text-base">
                   <Link to="/appointments" className="flex items-center justify-center space-x-2">
                     <Calendar className="w-5 h-5" />
                     <span>Book Appointment</span>

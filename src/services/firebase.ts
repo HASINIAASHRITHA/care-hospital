@@ -10,7 +10,8 @@ import {
   orderBy, 
   onSnapshot,
   serverTimestamp,
-  getDoc
+  getDoc,
+  setDoc
 } from 'firebase/firestore';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, User, signInWithPhoneNumber, RecaptchaVerifier, PhoneAuthProvider } from 'firebase/auth';
 import { ref, uploadBytes, getDownloadURL, getStorage } from 'firebase/storage';
@@ -119,7 +120,29 @@ export const onAuthChange = (callback: (user: User | null) => void) => {
 
 // Patient/User functions (write-once, read-only)
 export const submitAppointment = async (appointmentData: Omit<AppointmentData, 'id' | 'createdAt' | 'updatedAt'>) => {
-  // ...adds appointment to Firestore with status: 'pending'
+  try {
+    // Ensure required fields are present
+    if (!appointmentData.patientName || !appointmentData.phone || !appointmentData.date || !appointmentData.time) {
+      throw new Error('Missing required appointment fields');
+    }
+
+    // Add appointment to Firestore with status: 'pending'
+    const appointmentRef = await addDoc(collection(db, COLLECTIONS.APPOINTMENTS), {
+      ...appointmentData,
+      status: 'pending',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      source: 'website', // Track appointment source
+      whatsappSent: false,
+      lastCommunication: null
+    });
+    
+    console.log('New appointment created with ID:', appointmentRef.id);
+    return appointmentRef.id;
+  } catch (error) {
+    console.error('Error submitting appointment:', error);
+    throw error;
+  }
 };
 
 export const submitContactMessage = async (messageData: Omit<ContactMessage, 'id' | 'createdAt'>) => {
@@ -203,14 +226,55 @@ export const updateAppointment = async (id: string, data: Partial<AppointmentDat
 
 export const updatePatient = async (id: string, data: Partial<PatientData>, adminId: string) => {
   try {
+    // Check if document exists first
     const docRef = doc(db, COLLECTIONS.USERS, id);
+    const docSnap = await getDoc(docRef);
+    
+    if (!docSnap.exists()) {
+      console.log(`Document ${id} doesn't exist, creating instead of updating`);
+      // Document doesn't exist, create it instead
+      const newData = {
+        ...data,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        status: 'active',
+        userId: id // Store the user ID in the document
+      };
+      
+      await setDoc(docRef, newData);
+      
+      // Log admin action
+      if (adminId) {
+        await logAdminAction(
+          adminId, 
+          'CREATE', 
+          COLLECTIONS.USERS, 
+          id, 
+          `Created new patient profile: ${data.name || 'Unknown'}`
+        );
+      }
+      
+      return id;
+    }
+    
+    // Document exists, proceed with update
     await updateDoc(docRef, {
       ...data,
       updatedAt: serverTimestamp()
     });
     
-    // Log admin action
-    await logAdminAction(adminId, 'UPDATE', COLLECTIONS.USERS, id, `Updated patient: ${JSON.stringify(data)}`);
+    // Log admin action if adminId is provided
+    if (adminId) {
+      await logAdminAction(
+        adminId, 
+        'UPDATE', 
+        COLLECTIONS.USERS, 
+        id, 
+        `Updated patient: ${JSON.stringify(data)}`
+      );
+    }
+    
+    return id;
   } catch (error) {
     console.error('Error updating patient:', error);
     throw error;
@@ -393,7 +457,15 @@ export const deleteDoctor = async (id: string): Promise<void> => {
 export const listenToAppointments = (callback: (appointments: any[]) => void) => {
   const q = query(collection(db, COLLECTIONS.APPOINTMENTS), orderBy('createdAt', 'desc'));
   return onSnapshot(q, (snapshot) => {
-    const appointments = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const appointments = snapshot.docs.map(doc => {
+      const data = doc.data();
+      // Ensure all appointments have a source field
+      if (!data.source) {
+        data.source = 'unknown';
+      }
+      return { id: doc.id, ...data };
+    });
+    console.log('Appointments from Firestore:', appointments.length);
     callback(appointments);
   });
 };
@@ -445,7 +517,18 @@ export const getUserData = async (userId: string) => {
     const docRef = doc(db, COLLECTIONS.USERS, userId);
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
-      return { id: docSnap.id, ...docSnap.data() };
+      // Return the document data with all fields needed for appointments
+      const userData = docSnap.data();
+      return { 
+        id: docSnap.id, 
+        ...userData,
+        // Ensure we have all the fields we need with proper types
+        name: userData.name || '',
+        email: userData.email || '',
+        phone: userData.phone || '',
+        age: userData.age || '',
+        gender: userData.gender || ''
+      };
     }
     return null;
   } catch (error) {
@@ -698,6 +781,6 @@ declare global {
 // and used throughout the service functions, so we don't need to redefine them here.
 
 // Test WhatsApp message sending
-const msg = encodeURIComponent("Your appointment with Dr. X is confirmed for July 2 at 10:00 AM.");
-const phone = "91XXXXXXXXXX"; // user number, no +
-window.open(`https://wa.me/${phone}?text=${msg}`, "_blank");
+// const msg = encodeURIComponent("Your appointment with Dr. X is confirmed for July 2 at 10:00 AM.");
+// const phone = "91XXXXXXXXXX"; // user number, no +
+// window.open(`https://wa.me/${phone}?text=${msg}`, "_blank");

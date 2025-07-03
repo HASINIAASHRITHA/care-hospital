@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
   Calendar, 
   FileText, 
@@ -32,7 +33,8 @@ import {
   getUserAppointments, 
   getUserData, 
   updateAppointmentBillingStatus,
-  uploadPaymentProof 
+  uploadPaymentProof,
+  updatePatient 
 } from '@/services/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
@@ -45,6 +47,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { format } from 'date-fns';
+import { z } from "zod";
 
 // Firebase auth imports
 import { getAuth, signInWithPhoneNumber, PhoneAuthProvider, ConfirmationResult, RecaptchaVerifier } from "firebase/auth";
@@ -100,6 +103,19 @@ const Profile = () => {
   const [recaptchaVerified, setRecaptchaVerified] = useState(false);
   const [phoneAuthEnabled, setPhoneAuthEnabled] = useState(true);
   const [setupInstructionsOpen, setSetupInstructionsOpen] = useState(false);
+  
+  // New state variables for profile editing
+  const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+  const [isSubmittingProfile, setIsSubmittingProfile] = useState(false);
+  const [profileFormData, setProfileFormData] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    address: '',
+    emergencyContact: '',
+    gender: '',
+    age: ''
+  });
   
   const { user } = useAuth();
   const { toast } = useToast();
@@ -418,6 +434,76 @@ const Profile = () => {
     </Dialog>
   );
 
+  // Add this function to handle opening the profile dialog
+  const handleOpenProfileDialog = () => {
+    // Pre-fill form with existing data if available
+    if (userData) {
+      setProfileFormData({
+        name: userData.name || '',
+        email: userData.email || '',
+        phone: userData.phone || '',
+        address: userData.address || '',
+        emergencyContact: userData.emergencyContact || '',
+        gender: userData.gender || '',
+        age: userData.age ? String(userData.age) : ''
+      });
+    }
+    setProfileDialogOpen(true);
+  };
+
+  // Add this function to handle profile form submission
+  const handleProfileSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user?.uid) return;
+    
+    setIsSubmittingProfile(true);
+    
+    try {
+      // Prepare data for update
+      const updateData = {
+        ...profileFormData,
+        age: profileFormData.age ? parseInt(profileFormData.age) : undefined,
+        updatedAt: new Date(),
+        // Add required fields that might be needed for new user creation
+        name: profileFormData.name || "Patient",
+        email: profileFormData.email || "",
+        phone: profileFormData.phone || "",
+        status: 'active' as const
+      };
+      
+      // Update or create in Firebase
+      await updatePatient(user.uid, updateData, user.uid);
+      
+      // Update local state
+      setUserData({
+        ...userData,
+        ...updateData
+      });
+      
+      // Close dialog and show success message
+      setProfileDialogOpen(false);
+      toast({
+        title: userData ? "Profile Updated" : "Profile Created",
+        description: userData 
+          ? "Your profile information has been successfully updated." 
+          : "Your profile has been successfully created.",
+        variant: "default",
+      });
+      
+      // Refresh user data
+      fetchUserData();
+    } catch (error) {
+      console.error("Error updating profile:", error);
+      toast({
+        title: "Update Failed",
+        description: "There was an error updating your profile. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmittingProfile(false);
+    }
+  };
+
   if (!isLoggedIn) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-green-50">
@@ -638,272 +724,316 @@ const Profile = () => {
         </div>
       </section>
     
-    {/* Profile Content Section */}
-    <section className="py-8">
-      <div className="container mx-auto px-4">
-      <Tabs defaultValue="appointments" className="max-w-6xl mx-auto">
-      <TabsList className="grid w-full grid-cols-3 mb-8">
-        <TabsTrigger value="appointments" id="appointments-tab">
-        <Calendar className="h-4 w-4 mr-2" /> Appointments
-        </TabsTrigger>
-        <TabsTrigger value="billing" id="billing-tab">
-        <FileText className="h-4 w-4 mr-2" /> Billing
-        </TabsTrigger>
-        <TabsTrigger value="profile">
-        <User className="h-4 w-4 mr-2" /> Personal Info
-        </TabsTrigger>
-      </TabsList>
-      
-      {/* Appointments Tab */}
-      <TabsContent value="appointments" className="space-y-6">
-        <h2 className="text-2xl font-bold mb-4">Your Appointments</h2>
-        
-        {userAppointments && userAppointments.length > 0 ? (
-        <div className="grid gap-4 md:grid-cols-2">
-        {userAppointments.map((appointment, idx) => (
-          <Card key={idx} className="overflow-hidden border-l-4 border-l-orange-500">
-          <CardContent className="p-0">
-          <div className="bg-orange-50 p-4 flex justify-between items-center">
-            <div className="flex items-center gap-2">
-            <Clock className="h-5 w-5 text-orange-600" />
-            <span>{appointment.date} at {appointment.time}</span>
-            </div>
-            {getStatusBadge(appointment.status)}
-          </div>
-          <div className="p-4 space-y-4">
-            <div>
-            <h3 className="text-lg font-bold">Dr. {appointment.doctor}</h3>
-            <p className="text-gray-600">{appointment.department}</p>
+    {/* Profile Content Section - Improved spacing and layout */}
+    <section className="py-8 md:py-12 relative">
+      <div className="container mx-auto px-4 max-w-7xl">
+        <Tabs defaultValue="appointments" className="w-full mx-auto">
+          <TabsList className="grid w-full grid-cols-3 mb-8 sticky top-20 z-10 bg-white/80 backdrop-blur-md p-1 rounded-lg shadow-sm">
+            <TabsTrigger value="appointments" id="appointments-tab" className="py-3">
+              <Calendar className="h-4 w-4 mr-2" /> Appointments
+            </TabsTrigger>
+            <TabsTrigger value="billing" id="billing-tab" className="py-3">
+              <FileText className="h-4 w-4 mr-2" /> Billing
+            </TabsTrigger>
+            <TabsTrigger value="profile" className="py-3">
+              <User className="h-4 w-4 mr-2" /> Personal Info
+            </TabsTrigger>
+          </TabsList>
+          
+          {/* Appointments Tab - Improved layout */}
+          <TabsContent value="appointments" className="space-y-6">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold">Your Appointments</h2>
+              <Button asChild variant="outline" size="sm" className="hidden md:flex">
+                <Link to="/appointments" className="flex items-center gap-2">
+                  <Calendar className="h-4 w-4" /> Book New Appointment
+                </Link>
+              </Button>
             </div>
             
-            {appointment.status === 'completed' && appointment.billing && (
-            <div className="flex justify-between items-center bg-blue-50 p-3 rounded-md">
-            <div>
-              <span className="block text-sm">Bill Amount</span>
-              <span className="font-semibold">₹{appointment.billing.amount}</span>
-            </div>
-            <div>
-              {appointment.billing.status === 'pending' ? (
-              <Button 
-              size="sm" 
-              className="bg-green-600 hover:bg-green-700"
-              onClick={() => handleOpenPayment(appointment)}
-              >
-              Pay Now
-              </Button>
-              ) : (
-              <div className="flex items-center gap-1">
-              {getBillingBadge(appointment.billing.status)}
-              {appointment.billing.status === 'paid' && (
-                <Button variant="ghost" size="sm">
-                <Download className="h-4 w-4" />
-                </Button>
-              )}
+            {userAppointments && userAppointments.length > 0 ? (
+              <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
+                {userAppointments.map((appointment, idx) => (
+                  <Card key={idx} className="overflow-hidden border-l-4 border-l-orange-500 hover:shadow-lg transition-shadow">
+                    <CardContent className="p-0">
+                      <div className="bg-orange-50 p-4 flex justify-between items-center">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Clock className="h-5 w-5 text-orange-600 flex-shrink-0" />
+                          <span className="text-sm md:text-base">{appointment.date} at {appointment.time}</span>
+                        </div>
+                        <div className="flex-shrink-0">
+                          {getStatusBadge(appointment.status)}
+                        </div>
+                      </div>
+                      <div className="p-4 space-y-4">
+                        <div>
+                          <h3 className="text-lg font-bold truncate">Dr. {appointment.doctor}</h3>
+                          <p className="text-gray-600">{appointment.department}</p>
+                        </div>
+                        
+                        {appointment.status === 'completed' && appointment.billing && (
+                          <div className="flex flex-wrap justify-between items-center bg-blue-50 p-3 rounded-md">
+                            <div className="mb-2 sm:mb-0">
+                              <span className="block text-sm">Bill Amount</span>
+                              <span className="font-semibold">₹{appointment.billing.amount}</span>
+                            </div>
+                            <div>
+                              {appointment.billing.status === 'pending' ? (
+                                <Button 
+                                  size="sm" 
+                                  className="bg-green-600 hover:bg-green-700"
+                                  onClick={() => handleOpenPayment(appointment)}
+                                >
+                                  Pay Now
+                                </Button>
+                              ) : (
+                                <div className="flex items-center gap-1">
+                                  {getBillingBadge(appointment.billing.status)}
+                                  {appointment.billing.status === 'paid' && (
+                                    <Button variant="ghost" size="sm">
+                                      <Download className="h-4 w-4" />
+                                    </Button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
               </div>
-              )}
-            </div>
-            </div>
-            )}
-          </div>
-          </CardContent>
-          </Card>
-        ))}
-        </div>
-        ) : (
-        <Card className="bg-gray-50">
-        <CardContent className="flex flex-col items-center justify-center py-10">
-          <div className="rounded-full bg-gray-200 p-3 mb-4">
-          <Calendar className="h-8 w-8 text-gray-500" />
-          </div>
-          <h3 className="text-xl font-medium mb-2">No Appointments Found</h3>
-          <p className="text-gray-600 text-center max-w-md">
-          You don't have any appointments scheduled. Book a consultation with one of our specialists.
-          </p>
-          <Button className="mt-4" asChild>
-          <Link to="/appointments">Book Appointment</Link>
-          </Button>
-        </CardContent>
-        </Card>
-        )}
-      </TabsContent>
-      
-      {/* Billing Tab */}
-      <TabsContent value="billing" className="space-y-6">
-        <h2 className="text-2xl font-bold mb-4">Billing Information</h2>
-        
-        {userAppointments && userAppointments.length > 0 ? (
-        <div className="space-y-6">
-        {/* Pending Bills Section */}
-        <div>
-          <h3 className="text-lg font-medium mb-3">Pending Bills</h3>
-          {userAppointments.filter(apt => 
-          apt.billing?.status === 'pending'
-          ).length > 0 ? (
-          <div className="grid gap-4 md:grid-cols-2">
-            {userAppointments
-            .filter(apt => apt.billing?.status === 'pending')
-            .map((appointment, idx) => (
-              <Card key={idx}>
-              <CardHeader className="bg-red-50 py-3">
-                <CardTitle className="text-base font-semibold flex justify-between">
-                <span>Bill #{idx + 1001}</span>
-                <Badge className="bg-red-100 text-red-800 border-red-200">
-                  Payment Due
-                </Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="py-4 space-y-3">
-                <div className="flex justify-between">
-                <span className="text-gray-600">Doctor</span>
-                <span className="font-medium">Dr. {appointment.doctor}</span>
-                </div>
-                <div className="flex justify-between">
-                <span className="text-gray-600">Date</span>
-                <span>{appointment.date}</span>
-                </div>
-                <div className="flex justify-between">
-                <span className="text-gray-600">Amount</span>
-                <span className="font-bold text-lg">₹{appointment.billing?.amount}</span>
-                </div>
-              </CardContent>
-              <CardFooter className="bg-gray-50 py-3">
-                <Button 
-                className="w-full bg-green-600 hover:bg-green-700" 
-                onClick={() => handleOpenPayment(appointment)}
-                >
-                Pay Now
-                </Button>
-              </CardFooter>
+            ) : (
+              <Card className="bg-gray-50 border border-gray-200">
+                <CardContent className="flex flex-col items-center justify-center py-12">
+                  <div className="rounded-full bg-gray-200 p-3 mb-4">
+                    <Calendar className="h-8 w-8 text-gray-500" />
+                  </div>
+                  <h3 className="text-xl font-medium mb-3">No Appointments Found</h3>
+                  <p className="text-gray-600 text-center max-w-md mb-6">
+                    You don't have any appointments scheduled. Book a consultation with one of our specialists.
+                  </p>
+                  <Button className="mt-2" asChild>
+                    <Link to="/appointments">Book Appointment</Link>
+                  </Button>
+                </CardContent>
               </Card>
-            ))}
-          </div>
-          ) : (
-          <Card className="bg-gray-50">
-          <CardContent className="py-8 text-center">
-            <CheckCircle className="h-8 w-8 text-green-500 mx-auto mb-3" />
-            <p className="text-gray-600">You have no pending bills</p>
-          </CardContent>
-          </Card>
-          )}
-        </div>
-        
-        {/* Payment History Section */}
-        <div>
-          <h3 className="text-lg font-medium mb-3">Payment History</h3>
-          {userAppointments.filter(apt => 
-          apt.billing?.status === 'paid'
-          ).length > 0 ? (
-          <Card>
-          <CardContent className="p-0">
-            <table className="w-full">
-            <thead className="bg-gray-50 text-gray-600 text-xs">
-            <tr>
-              <th className="p-3 text-left">Bill #</th>
-              <th className="p-3 text-left">Date</th>
-              <th className="p-3 text-left">Doctor</th>
-              <th className="p-3 text-right">Amount</th>
-              <th className="p-3 text-center">Receipt</th>
-            </tr>
-            </thead>
-            <tbody className="divide-y">
-            {userAppointments
-              .filter(apt => apt.billing?.status === 'paid')
-              .map((appointment, idx) => (
-              <tr key={idx}>
-              <td className="p-3">{idx + 1001}</td>
-              <td className="p-3">{appointment.date}</td>
-              <td className="p-3">Dr. {appointment.doctor}</td>
-              <td className="p-3 text-right">₹{appointment.billing?.amount}</td>
-              <td className="p-3 text-center">
-                <Button variant="ghost" size="sm" className="text-blue-600">
-                <Download className="h-4 w-4" />
-                </Button>
-              </td>
-              </tr>
-              ))}
-            </tbody>
-            </table>
-          </CardContent>
-          </Card>
-          ) : (
-          <Card className="bg-gray-50">
-          <CardContent className="py-8 text-center">
-            <p className="text-gray-600">No payment history available</p>
-          </CardContent>
-          </Card>
-          )}
-        </div>
-        </div>
-        ) : (
-        <Card className="bg-gray-50">
-        <CardContent className="flex flex-col items-center justify-center py-10">
-          <div className="rounded-full bg-gray-200 p-3 mb-4">
-          <FileText className="h-8 w-8 text-gray-500" />
-          </div>
-          <h3 className="text-xl font-medium mb-2">No Billing Information</h3>
-          <p className="text-gray-600 text-center max-w-md">
-          You don't have any billing information yet.
-          </p>
-        </CardContent>
-        </Card>
-        )}
-      </TabsContent>
-      
-      {/* Profile Tab */}
-      <TabsContent value="profile" className="space-y-6">
-        <h2 className="text-2xl font-bold mb-4">Personal Information</h2>
-        <Card>
-        <CardContent className="py-6">
-        {userData ? (
-          <dl className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <dt className="text-sm font-medium text-gray-500 flex items-center gap-1">
-            <User className="h-4 w-4" /> Full Name
-            </dt>
-            <dd className="mt-1 text-lg">{userData.name || "Not provided"}</dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-gray-500 flex items-center gap-1">
-            <Mail className="h-4 w-4" /> Email Address
-            </dt>
-            <dd className="mt-1 text-lg">{userData.email || "Not provided"}</dd>
-          </div>
-          </div>
+            )}
+            
+            {/* Mobile Book Button - Only shown on mobile */}
+            <div className="md:hidden">
+              <Button asChild className="w-full">
+                <Link to="/appointments" className="flex items-center justify-center gap-2">
+                  <Calendar className="h-4 w-4" /> Book New Appointment
+                </Link>
+              </Button>
+            </div>
+          </TabsContent>
           
-          <Separator />
+          {/* Billing Tab */}
+          <TabsContent value="billing" className="space-y-6">
+            <h2 className="text-2xl font-bold mb-4">Billing Information</h2>
+            
+            {userAppointments && userAppointments.length > 0 ? (
+            <div className="space-y-6">
+              {/* Pending Bills Section */}
+              <div>
+                <h3 className="text-lg font-medium mb-3">Pending Bills</h3>
+                {userAppointments.filter(apt => 
+                apt.billing?.status === 'pending'
+                ).length > 0 ? (
+                <div className="grid gap-4 md:grid-cols-2">
+                  {userAppointments
+                  .filter(apt => apt.billing?.status === 'pending')
+                  .map((appointment, idx) => (
+                    <Card key={idx}>
+                    <CardHeader className="bg-red-50 py-3">
+                      <CardTitle className="text-base font-semibold flex justify-between">
+                      <span>Bill #{idx + 1001}</span>
+                      <Badge className="bg-red-100 text-red-800 border-red-200">
+                        Payment Due
+                      </Badge>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="py-4 space-y-3">
+                      <div className="flex justify-between">
+                      <span className="text-gray-600">Doctor</span>
+                      <span className="font-medium">Dr. {appointment.doctor}</span>
+                      </div>
+                      <div className="flex justify-between">
+                      <span className="text-gray-600">Date</span>
+                      <span>{appointment.date}</span>
+                      </div>
+                      <div className="flex justify-between">
+                      <span className="text-gray-600">Amount</span>
+                      <span className="font-bold text-lg">₹{appointment.billing?.amount}</span>
+                      </div>
+                    </CardContent>
+                    <CardFooter className="bg-gray-50 py-3">
+                      <Button 
+                      className="w-full bg-green-600 hover:bg-green-700" 
+                      onClick={() => handleOpenPayment(appointment)}
+                      >
+                      Pay Now
+                      </Button>
+                    </CardFooter>
+                    </Card>
+                  ))}
+                </div>
+                ) : (
+                <Card className="bg-gray-50">
+                <CardContent className="py-8 text-center">
+                  <CheckCircle className="h-8 w-8 text-green-500 mx-auto mb-3" />
+                  <p className="text-gray-600">You have no pending bills</p>
+                </CardContent>
+                </Card>
+                )}
+              </div>
+              
+              {/* Payment History Section */}
+              <div>
+                <h3 className="text-lg font-medium mb-3">Payment History</h3>
+                {userAppointments.filter(apt => 
+                apt.billing?.status === 'paid'
+                ).length > 0 ? (
+                <Card>
+                <CardContent className="p-0">
+                  <table className="w-full">
+                  <thead className="bg-gray-50 text-gray-600 text-xs">
+                  <tr>
+                    <th className="p-3 text-left">Bill #</th>
+                    <th className="p-3 text-left">Date</th>
+                    <th className="p-3 text-left">Doctor</th>
+                    <th className="p-3 text-right">Amount</th>
+                    <th className="p-3 text-center">Receipt</th>
+                  </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                  {userAppointments
+                    .filter(apt => apt.billing?.status === 'paid')
+                    .map((appointment, idx) => (
+                    <tr key={idx}>
+                    <td className="p-3">{idx + 1001}</td>
+                    <td className="p-3">{appointment.date}</td>
+                    <td className="p-3">Dr. {appointment.doctor}</td>
+                    <td className="p-3 text-right">₹{appointment.billing?.amount}</td>
+                    <td className="p-3 text-center">
+                      <Button variant="ghost" size="sm" className="text-blue-600">
+                      <Download className="h-4 w-4" />
+                      </Button>
+                    </td>
+                    </tr>
+                    ))}
+                  </tbody>
+                  </table>
+                </CardContent>
+                </Card>
+                ) : (
+                <Card className="bg-gray-50">
+                <CardContent className="py-8 text-center">
+                  <p className="text-gray-600">No payment history available</p>
+                </CardContent>
+                </Card>
+                )}
+              </div>
+            </div>
+            ) : (
+            <Card className="bg-gray-50">
+            <CardContent className="flex flex-col items-center justify-center py-10">
+              <div className="rounded-full bg-gray-200 p-3 mb-4">
+              <FileText className="h-8 w-8 text-gray-500" />
+              </div>
+              <h3 className="text-xl font-medium mb-2">No Billing Information</h3>
+              <p className="text-gray-600 text-center max-w-md">
+              You don't have any billing information yet.
+              </p>
+            </CardContent>
+            </Card>
+            )}
+          </TabsContent>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <dt className="text-sm font-medium text-gray-500 flex items-center gap-1">
-            <Phone className="h-4 w-4" /> Phone Number
-            </dt>
-            <dd className="mt-1 text-lg">{userData.phone || "Not provided"}</dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-gray-500 flex items-center gap-1">
-            <MapPin className="h-4 w-4" /> Address
-            </dt>
-            <dd className="mt-1 text-lg">{userData.address || "Not provided"}</dd>
-          </div>
-          </div>
-          
-          <Separator />
-          
-          <Button variant="outline" className="w-full md:w-auto">
-          Update Profile
-          </Button>
-          </dl>
-        ) : (
-          <div className="text-center py-6">
-          <p className="text-gray-600">Complete your profile to manage appointments and billing more efficiently.</p>
-          <Button className="mt-4">Complete Profile</Button>
-          </div>
-        )}
-        </CardContent>
-        </Card>
-      </TabsContent>
-      </Tabs>
+          {/* Profile Tab */}
+          <TabsContent value="profile" className="space-y-6">
+            <h2 className="text-2xl font-bold mb-4">Personal Information</h2>
+            <Card>
+            <CardContent className="py-6">
+            {userData ? (
+              <dl className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <dt className="text-sm font-medium text-gray-500 flex items-center gap-1">
+                <User className="h-4 w-4" /> Full Name
+                </dt>
+                <dd className="mt-1 text-lg">{userData.name || "Not provided"}</dd>
+              </div>
+              <div>
+                <dt className="text-sm font-medium text-gray-500 flex items-center gap-1">
+                <Mail className="h-4 w-4" /> Email Address
+                </dt>
+                <dd className="mt-1 text-lg">{userData.email || "Not provided"}</dd>
+              </div>
+              </div>
+              
+              <Separator />
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <dt className="text-sm font-medium text-gray-500 flex items-center gap-1">
+                <Phone className="h-4 w-4" /> Phone Number
+                </dt>
+                <dd className="mt-1 text-lg">{userData.phone || "Not provided"}</dd>
+              </div>
+              <div>
+                <dt className="text-sm font-medium text-gray-500 flex items-center gap-1">
+                <MapPin className="h-4 w-4" /> Address
+                </dt>
+                <dd className="mt-1 text-lg">{userData.address || "Not provided"}</dd>
+              </div>
+              </div>
+              
+              <Separator />
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <dt className="text-sm font-medium text-gray-500 flex items-center gap-1">
+                <User className="h-4 w-4" /> Emergency Contact
+                </dt>
+                <dd className="mt-1 text-lg">{userData.emergencyContact || "Not provided"}</dd>
+              </div>
+              <div>
+                <dt className="text-sm font-medium text-gray-500 flex items-center gap-1">
+                <User className="h-4 w-4" /> Gender
+                </dt>
+                <dd className="mt-1 text-lg">{userData.gender || "Not provided"}</dd>
+              </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <dt className="text-sm font-medium text-gray-500 flex items-center gap-1">
+                    <User className="h-4 w-4" /> Age
+                  </dt>
+                  <dd className="mt-1 text-lg">{userData.age || "Not provided"}</dd>
+                </div>
+              </div>
+              
+              <Separator />
+              
+              <Button variant="outline" className="w-full md:w-auto" onClick={handleOpenProfileDialog}>
+              {userData ? "Update Profile" : "Complete Profile"}
+              </Button>
+              </dl>
+            ) : (
+              <div className="text-center py-6">
+              <p className="text-gray-600">Complete your profile to manage appointments and billing more efficiently.</p>
+              <Button className="mt-4" onClick={handleOpenProfileDialog}>Complete Profile</Button>
+              </div>
+            )}
+            </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
     </section>
 
@@ -1012,7 +1142,9 @@ const Profile = () => {
             <div className="space-y-3 text-center p-4 bg-gray-50 rounded-md">
               <CreditCard className="h-12 w-12 mx-auto text-gray-500" />
               <p className="text-gray-700">You've selected to pay by cash.</p>
-              <p className="text-sm text-gray-600">Please pay at the hospital reception desk and collect your receipt.</p>
+              <p className="text-sm text-gray-600 mt-1">
+                Please pay at the hospital reception desk and collect your receipt.
+              </p>
             </div>
           )}
           
@@ -1071,6 +1203,140 @@ const Profile = () => {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {/* Profile Edit Dialog */}
+    <Dialog open={profileDialogOpen} onOpenChange={setProfileDialogOpen}>
+      <DialogContent className="sm:max-w-[500px]">
+        <DialogHeader>
+          <DialogTitle>{userData ? "Update Profile" : "Complete Your Profile"}</DialogTitle>
+          <DialogDescription>
+            {userData 
+              ? "Update your personal information below." 
+              : "Fill in your information to complete your profile."}
+          </DialogDescription>
+        </DialogHeader>
+        
+        <form onSubmit={handleProfileSubmit} className="space-y-4">
+          <div className="grid grid-cols-1 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="name">Full Name *</Label>
+                <Input
+                  id="name"
+                  value={profileFormData.name}
+                  onChange={(e) => setProfileFormData({...profileFormData, name: e.target.value})}
+                  placeholder="Full Name"
+                  required
+                  disabled={isSubmittingProfile}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={profileFormData.email}
+                  onChange={(e) => setProfileFormData({...profileFormData, email: e.target.value})}
+                  placeholder="Email Address"
+                  disabled={isSubmittingProfile}
+                />
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="phone">Phone Number *</Label>
+                <Input
+                  id="phone"
+                  value={profileFormData.phone}
+                  onChange={(e) => setProfileFormData({...profileFormData, phone: e.target.value})}
+                  placeholder="Phone Number"
+                  required
+                  disabled={isSubmittingProfile}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="gender">Gender</Label>
+                <Select 
+                  value={profileFormData.gender} 
+                  onValueChange={(value) => setProfileFormData({...profileFormData, gender: value})}
+                  disabled={isSubmittingProfile}
+                >
+                  <SelectTrigger id="gender" className="w-full">
+                    <SelectValue placeholder="Select Gender" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="male">Male</SelectItem>
+                    <SelectItem value="female">Female</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                    <SelectItem value="prefer-not-to-say">Prefer not to say</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="age">Age</Label>
+                <Input
+                  id="age"
+                  type="number"
+                  value={profileFormData.age}
+                  onChange={(e) => setProfileFormData({...profileFormData, age: e.target.value})}
+                  placeholder="Age"
+                  min="0"
+                  max="120"
+                  disabled={isSubmittingProfile}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="emergencyContact">Emergency Contact</Label>
+                <Input
+                  id="emergencyContact"
+                  value={profileFormData.emergencyContact}
+                  onChange={(e) => setProfileFormData({...profileFormData, emergencyContact: e.target.value})}
+                  placeholder="Emergency Contact Number"
+                  disabled={isSubmittingProfile}
+                />
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="address">Address</Label>
+              <Textarea
+                id="address"
+                value={profileFormData.address}
+                onChange={(e) => setProfileFormData({...profileFormData, address: e.target.value})}
+                placeholder="Your full address"
+                disabled={isSubmittingProfile}
+                rows={3}
+              />
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setProfileDialogOpen(false)} disabled={isSubmittingProfile}>
+              Cancel
+            </Button>
+            <Button 
+              type="submit" 
+              className="bg-gradient-to-r from-orange-500 to-green-500"
+              disabled={isSubmittingProfile || !profileFormData.name || !profileFormData.phone}
+            >
+              {isSubmittingProfile ? (
+                <span className="flex items-center">
+                  <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-b-transparent"></span>
+                  Saving...
+                </span>
+              ) : (
+                userData ? "Update Profile" : "Save Profile"
+              )}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+
       <Footer />
     </div>
   );

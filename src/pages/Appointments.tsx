@@ -8,11 +8,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Calendar } from '@/components/ui/calendar';
+import { Calendar as CalendarComponent } from '@/components/ui/calendar'; // Renamed to avoid conflict
 import { Badge } from '@/components/ui/badge';
-import { CalendarDays, Clock, Phone, Mail, MapPin, CreditCard, CheckCircle } from 'lucide-react';
+import { Calendar, Clock, Phone, Mail, MapPin, CreditCard, CheckCircle, User as UserIcon } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { submitAppointment, AppointmentData, getDoctors, Doctor } from '@/services/firebase';
+import { submitAppointment, AppointmentData, getDoctors, Doctor, getUserData } from '@/services/firebase';
 import { sendAppointmentNotification } from '@/services/whatsapp';
 // If you're using Firebase Auth
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
@@ -61,6 +61,9 @@ const Appointments = () => {
     symptoms: '',
     preferredLanguage: 'english'
   });
+  
+  // Add a state to track if profile data has been loaded
+  const [profileLoaded, setProfileLoaded] = useState(false);
   
   const { toast } = useToast();
   const { user } = useAuth();
@@ -297,6 +300,47 @@ const Appointments = () => {
     }
   }, [departments, doctors, formData, toast]);
 
+  // Fetch user profile data when component mounts if user is logged in
+  useEffect(() => {
+    const loadUserProfile = async () => {
+      // Only proceed if user is logged in and profile hasn't been loaded yet
+      if (user?.uid && !profileLoaded) {
+        try {
+          const userData = await getUserData(user.uid);
+          
+          if (userData) {
+            // Only update form if we actually have user data
+            setFormData(prevData => ({
+              ...prevData,
+              // Auto-fill personal information fields only
+              name: userData.name || prevData.name,
+              phone: userData.phone || prevData.phone,
+              email: userData.email || prevData.email,
+              age: userData.age ? String(userData.age) : prevData.age,
+              gender: userData.gender || prevData.gender
+              // We intentionally don't auto-fill department, doctor, symptoms
+            }));
+            
+            // Show a toast notification to inform the user
+            toast({
+              title: "Profile Information Auto-filled",
+              description: "We've filled in some information from your profile.",
+              className: "bg-blue-50 border-blue-200"
+            });
+          }
+        } catch (error) {
+          console.error("Error fetching user profile:", error);
+          // Don't show an error toast - silent failure is better here
+        } finally {
+          // Mark profile as loaded to prevent repeated fetches
+          setProfileLoaded(true);
+        }
+      }
+    };
+    
+    loadUserProfile();
+  }, [user, profileLoaded, toast]);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-green-50">
       <Header />
@@ -325,7 +369,16 @@ const Appointments = () => {
             <div className="lg:col-span-2">
               <Card className="shadow-xl border-0">
                 <CardHeader className="bg-gradient-to-r from-orange-500 to-green-500 text-white">
-                  <CardTitle className="text-2xl">Book Appointment</CardTitle>
+                  <CardTitle className="text-2xl flex items-center">
+                    <Calendar className="w-5 h-5 mr-2" />
+                    Book Appointment
+                    {user && (
+                      <Badge className="ml-auto bg-white/20 text-white">
+                        <UserIcon className="w-3 h-3 mr-1" />
+                        Profile Linked
+                      </Badge>
+                    )}
+                  </CardTitle>
                 </CardHeader>
                 <CardContent className="p-6">
                   <form onSubmit={handleSubmit} className="space-y-6">
@@ -482,7 +535,7 @@ const Appointments = () => {
                     <div>
                       <Label>Select Date *</Label>
                       <div className="mt-2">
-                        <Calendar
+                        <CalendarComponent
                           mode="single"
                           selected={selectedDate}
                           onSelect={setSelectedDate}

@@ -80,6 +80,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { DayPicker } from 'react-day-picker';
 import { parseISO, formatISO } from 'date-fns';
 
+// Update the appointment interface to include source and whatsapp fields
 export interface AppointmentData {
   id?: string;
   patientName: string;
@@ -89,11 +90,15 @@ export interface AppointmentData {
   department: string;
   date: string;
   time: string;
-  status: string;
+  status: 'confirmed' | 'completed' | 'cancelled' | 'pending';
   createdAt?: any;
   whatsappSent?: boolean;
   lastCommunication?: string;
+  source?: 'website' | 'office' | 'phone' | 'unknown';
 }
+
+// Make sure all optional fields are included in update operations
+type AppointmentUpdateData = Partial<AppointmentData>;
 
 const Admin = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -127,6 +132,7 @@ const Admin = () => {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [dateFilter, setDateFilter] = useState<Date | undefined>(undefined);
   const [doctorFilter, setDoctorFilter] = useState<string>('all');
+  const [sourceFilter, setSourceFilter] = useState<string>('all');
   const [isRescheduleModalOpen, setIsRescheduleModalOpen] = useState(false);
   const [currentAppointment, setCurrentAppointment] = useState<AppointmentData | null>(null);
   const [newAppointmentDate, setNewAppointmentDate] = useState<Date | undefined>(undefined);
@@ -180,6 +186,11 @@ const Admin = () => {
         return false;
       }
       
+      // Source filter
+      if (sourceFilter !== 'all' && appointment.source !== sourceFilter) {
+        return false;
+      }
+      
       // Date filter
       if (dateFilter && appointment.date) {
         try {
@@ -199,7 +210,7 @@ const Admin = () => {
       
       return true;
     });
-  }, [filteredData.appointments, statusFilter, doctorFilter, dateFilter]);
+  }, [filteredData.appointments, statusFilter, doctorFilter, dateFilter, sourceFilter]);
 
   console.log('Admin page state:', { user: !!user, isAdmin, loading });
 
@@ -474,10 +485,37 @@ const Admin = () => {
         messageType: 'confirmation' as const
       };
       
-      // Send the WhatsApp message
-      const result = await sendWhatsAppMessage(messageData);
+      console.log("Sending WhatsApp message with data:", messageData);
       
-      if (result.success) {
+      // First try to open WhatsApp directly (more reliable method)
+      let messageSent = false;
+      
+      try {
+        // Import directly to avoid any module loading issues
+        const { openWhatsAppDirectly } = await import('@/services/whatsapp');
+        const directResult = openWhatsAppDirectly(messageData);
+        
+        if (directResult) {
+          messageSent = true;
+          console.log("WhatsApp opened directly in browser");
+        }
+      } catch (directError) {
+        console.warn("Failed to open WhatsApp directly:", directError);
+      }
+      
+      // If direct method fails, try the API method
+      if (!messageSent) {
+        // Send the WhatsApp message through API
+        const result = await sendWhatsAppMessage(messageData);
+        
+        if (result.success) {
+          messageSent = true;
+        } else {
+          throw new Error("Failed to send WhatsApp message");
+        }
+      }
+      
+      if (messageSent) {
         toast({
           title: "WhatsApp Sent",
           description: `Message successfully sent to ${appointment.patientName}`,
@@ -488,9 +526,7 @@ const Admin = () => {
         await updateAppointment(appointment.id, { 
           whatsappSent: true, 
           lastCommunication: new Date().toISOString()
-        }, user.uid);
-      } else {
-        throw new Error("Failed to send WhatsApp message");
+        } as Partial<AppointmentData>, user.uid);
       }
     } catch (error) {
       console.error('WhatsApp sending error:', error);
@@ -811,6 +847,22 @@ const Admin = () => {
                     </SelectContent>
                   </Select>
                 </div>
+
+                <div className="flex-1">
+                  <label className="text-sm font-medium mb-1 block">Filter by Source</label>
+                  <Select value={sourceFilter} onValueChange={setSourceFilter}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="All Sources" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Sources</SelectItem>
+                      <SelectItem value="website">Website</SelectItem>
+                      <SelectItem value="office">Office</SelectItem>
+                      <SelectItem value="phone">Phone</SelectItem>
+                      <SelectItem value="unknown">Unknown</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -823,6 +875,7 @@ const Admin = () => {
                       <TableHead>Department</TableHead>
                       <TableHead>Date & Time</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Source</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -844,6 +897,16 @@ const Admin = () => {
                           <TableCell>
                             <Badge className={getStatusBadge(appointment.status)}>
                               {appointment.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={`${
+                              appointment.source === 'website' ? 'bg-blue-100 text-blue-800 border-blue-200' :
+                              appointment.source === 'office' ? 'bg-green-100 text-green-800 border-green-200' :
+                              appointment.source === 'phone' ? 'bg-purple-100 text-purple-800 border-purple-200' :
+                              'bg-gray-100 text-gray-800 border-gray-200'
+                            }`}>
+                              {appointment.source || 'unknown'}
                             </Badge>
                           </TableCell>
                           <TableCell>
@@ -1295,6 +1358,27 @@ const Admin = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Debug Panel - Admin Only (optional) */}
+      {userAppointments.length > 0 && isAdmin && (
+        <div className="mt-4 p-4 bg-gray-50 rounded-md">
+          <h4 className="text-sm font-medium mb-2">Appointment Statistics</h4>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+            <div>
+              <span className="text-gray-500">Total:</span> {userAppointments.length}
+            </div>
+            <div>
+              <span className="text-gray-500">Website:</span> {userAppointments.filter(a => a.source === 'website').length}
+            </div>
+            <div>
+              <span className="text-gray-500">Office:</span> {userAppointments.filter(a => a.source === 'office').length}
+            </div>
+            <div>
+              <span className="text-gray-500">Unknown:</span> {userAppointments.filter(a => !a.source).length}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
