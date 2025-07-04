@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
-import NotificationPreferences from '@/components/NotificationPreferences';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,7 +12,6 @@ import { Badge } from '@/components/ui/badge';
 import { Calendar, Clock, Phone, Mail, MapPin, CreditCard, CheckCircle, User as UserIcon } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { submitAppointment, AppointmentData, getDoctors, Doctor, getUserData } from '@/services/firebase';
-import { sendAppointmentNotification } from '@/services/whatsapp';
 // If you're using Firebase Auth
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 
@@ -47,9 +45,6 @@ const Appointments = () => {
   const [selectedDate, setSelectedDate] = useState<Date>();
   const [selectedTime, setSelectedTime] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [whatsappEnabled, setWhatsappEnabled] = useState(true);
-  const [smsEnabled, setSmsEnabled] = useState(true);
-  const [scheduleReminder, setScheduleReminder] = useState(true);
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
@@ -154,71 +149,12 @@ const Appointments = () => {
       // Generate a reference ID since submitAppointment doesn't return a value
       const appointmentReference = `REF${Math.floor(100000 + Math.random() * 900000)}`;
 
-      // Send notifications if enabled
-      if (whatsappEnabled || smsEnabled) {
-        try {
-          const notificationData = {
-            patientName: formData.name,
-            doctorName: formData.doctor || `Available doctor in ${formData.department}`,
-            department: formData.department,
-            date: selectedDate.toLocaleDateString('en-IN', { 
-              weekday: 'long', 
-              year: 'numeric', 
-              month: 'long', 
-              day: 'numeric' 
-            }),
-            time: selectedTime,
-            phone: formData.phone,
-            appointmentId: appointmentReference, // Add appointment ID to the notification
-            messageType: 'confirmation' as const
-          };
-
-          const notificationResult = await sendAppointmentNotification(
-            notificationData, 
-            whatsappEnabled, 
-            smsEnabled,
-            scheduleReminder
-          );
-
-          if (notificationResult.success) {
-            let confirmationMessage = `Your appointment has been confirmed (ID: ${appointmentReference}).`;
-            
-            // Build notification message
-            if (whatsappEnabled && notificationResult.whatsapp?.success) {
-              confirmationMessage += ' Confirmation sent via WhatsApp';
-              if (smsEnabled && notificationResult.sms?.success) confirmationMessage += ' and SMS';
-              confirmationMessage += '.';
-            } else if (smsEnabled && notificationResult.sms?.success) {
-              confirmationMessage += ' Confirmation sent via SMS.';
-            }
-            
-            // Add reminder info if scheduled
-            if (scheduleReminder && notificationResult.reminder?.success) {
-              confirmationMessage += ` A reminder will be sent 24 hours before your appointment.`;
-            }
-            toast({
-              title: "Appointment Booked Successfully! 🎉",
-              description: confirmationMessage,
-            });
-          } else {
-            toast({
-              title: "Appointment Booked Successfully!",
-              description: `Your appointment has been submitted (ID: ${appointmentReference}). However, there was an issue sending notifications. Our team will contact you shortly.`,
-              variant: "default"
-            });
-          }
-        } catch (notificationError) {
-          toast({
-            title: "Appointment Booked Successfully!",
-            description: `Your appointment has been submitted (ID: ${appointmentReference}). Our team will contact you shortly for confirmation.`,
-          });
-        }
-      } else {
-        toast({
-          title: "Appointment Booked Successfully!",
-          description: `Your appointment has been submitted (ID: ${appointmentReference}). Our team will contact you shortly for confirmation.`,
-        });
-      }
+      // Show success message - NO automatic notifications
+      toast({
+        title: "Appointment Booked Successfully! 🎉",
+        description: `Your appointment has been submitted (ID: ${appointmentReference}). Our team will review and confirm your appointment shortly.`,
+        className: "bg-green-50 border-green-200"
+      });
 
       // Reset form
       setFormData({
@@ -581,16 +517,6 @@ const Appointments = () => {
 
             {/* Sidebar */}
             <div className="space-y-6">
-              
-              {/* Notification Preferences */}
-              <NotificationPreferences
-                whatsappEnabled={whatsappEnabled}
-                smsEnabled={smsEnabled}
-                reminderEnabled={scheduleReminder}
-                onWhatsAppChange={setWhatsappEnabled}
-                onSMSChange={setSmsEnabled}
-                onReminderChange={setScheduleReminder}
-              />
               
               {/* Contact Card */}
               <Card className="shadow-lg">

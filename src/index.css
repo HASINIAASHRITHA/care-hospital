@@ -1,3 +1,4 @@
+/* tailwind directives - ensure tailwindcss is installed */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -101,5 +102,60 @@ All colors MUST be HSL.
 
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+/* Custom positioning for Sonner toasts to be centered */
+[data-sonner-toaster] {
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  width: auto !important;
+  max-width: 420px !important;
+}
+
+[data-sonner-toaster] [data-sonner-toast] {
+  margin: 8px 0 !important;
+}
+
+/* Ensure Radix UI Toast viewport is properly centered */
+[data-radix-toast-viewport] {
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  width: auto !important;
+  max-width: 420px !important;
+}
+
+/* Animation adjustments for center positioning */
+[data-radix-toast-viewport] [data-state="open"] {
+  animation: slideInFromCenter 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-radix-toast-viewport] [data-state="closed"] {
+  animation: slideOutToCenter 100ms ease-in;
+}
+
+@keyframes slideInFromCenter {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slideOutToCenter {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.9);
   }
 }

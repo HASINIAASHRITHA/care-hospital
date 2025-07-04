@@ -97,6 +97,41 @@ export interface AppointmentData {
   source?: 'website' | 'office' | 'phone' | 'unknown';
 }
 
+// Utility function to format phone number for WhatsApp
+const formatPhoneForWhatsApp = (phone: string): string => {
+  // Remove any non-numeric characters
+  let cleaned = phone.replace(/\D/g, '');
+  
+  // Add country code if it's missing (assuming India +91)
+  if (cleaned.length === 10) {
+    cleaned = '91' + cleaned;
+  }
+  
+  return cleaned;
+};
+
+// Utility function to create professional appointment confirmation message
+const createProfessionalMessage = (appointment: AppointmentData): string => {
+  const formattedDate = new Date(appointment.date).toLocaleDateString('en-IN', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+
+  // Remove "Dr." prefix if it already exists in the doctor name
+  const doctorName = appointment.doctor.startsWith('Dr. ') ? appointment.doctor : `Dr. ${appointment.doctor}`;
+
+  return `Hello ${appointment.patientName},
+
+Your appointment with Dr. ${doctorName} on ${formattedDate} at ${appointment.time} has been confirmed.
+
+Please reach 10 minutes early and bring any previous reports if applicable.
+
+Thank you,
+Care Hospital`;
+};
+
 // Make sure all optional fields are included in update operations
 type AppointmentUpdateData = Partial<AppointmentData>;
 
@@ -467,72 +502,60 @@ const Admin = () => {
   };
 
   const handleSendWhatsAppMessage = async (appointment: AppointmentData) => {
-    if (!appointment.id || !appointment.phone) return;
+    if (!appointment.id || !appointment.phone) {
+      toast({
+        title: "Missing Information",
+        description: "Phone number is required to send WhatsApp message.",
+        variant: "destructive"
+      });
+      return;
+    }
     
     // Set loading state for this specific appointment
     setSendingWhatsApp(prev => ({ ...prev, [appointment.id!]: true }));
     
     try {
-      // Format message data from appointment
-      const messageData = {
-        patientName: appointment.patientName,
-        doctorName: appointment.doctor,
-        department: appointment.department,
-        date: appointment.date,
-        time: appointment.time,
-        phone: appointment.phone,
-        appointmentId: appointment.id,
-        messageType: 'confirmation' as const
-      };
-      
-      console.log("Sending WhatsApp message with data:", messageData);
-      
-      // First try to open WhatsApp directly (more reliable method)
-      let messageSent = false;
-      
-      try {
-        // Import directly to avoid any module loading issues
-        const { openWhatsAppDirectly } = await import('@/services/whatsapp');
-        const directResult = openWhatsAppDirectly(messageData);
-        
-        if (directResult) {
-          messageSent = true;
-          console.log("WhatsApp opened directly in browser");
-        }
-      } catch (directError) {
-        console.warn("Failed to open WhatsApp directly:", directError);
+      // Validate phone number format
+      const phoneValidation = /^[\d\s\-\+\(\)]+$/.test(appointment.phone);
+      if (!phoneValidation) {
+        throw new Error('Invalid phone number format');
       }
       
-      // If direct method fails, try the API method
-      if (!messageSent) {
-        // Send the WhatsApp message through API
-        const result = await sendWhatsAppMessage(messageData);
-        
-        if (result.success) {
-          messageSent = true;
-        } else {
-          throw new Error("Failed to send WhatsApp message");
-        }
+      // Create a professional appointment confirmation message
+      const professionalMessage = createProfessionalMessage(appointment);
+      
+      // Format phone number for WhatsApp
+      const cleanedPhone = formatPhoneForWhatsApp(appointment.phone);
+      
+      // Validate cleaned phone number
+      if (cleanedPhone.length < 10) {
+        throw new Error('Phone number appears to be too short');
       }
       
-      if (messageSent) {
-        toast({
-          title: "WhatsApp Sent",
-          description: `Message successfully sent to ${appointment.patientName}`,
-          className: "bg-green-50 border-green-200"
-        });
-        
-        // Update appointment to note that WhatsApp was sent
-        await updateAppointment(appointment.id, { 
-          whatsappSent: true, 
-          lastCommunication: new Date().toISOString()
-        } as Partial<AppointmentData>, user.uid);
-      }
-    } catch (error) {
-      console.error('WhatsApp sending error:', error);
+      // Open WhatsApp Web with the professional message
+      const encodedMessage = encodeURIComponent(professionalMessage);
+      const whatsappUrl = `https://wa.me/${cleanedPhone}?text=${encodedMessage}`;
+      
+      console.log('Opening WhatsApp with URL:', whatsappUrl);
+      window.open(whatsappUrl, '_blank');
+      
+      // Mark the appointment as having WhatsApp sent
+      await updateAppointment(appointment.id, { 
+        whatsappSent: true, 
+        lastCommunication: new Date().toISOString()
+      } as Partial<AppointmentData>, user.uid);
+      
       toast({
-        title: "Message Failed",
-        description: "Could not send WhatsApp message. Please try again.",
+        title: "WhatsApp Opened",
+        description: `Professional confirmation message prepared for ${appointment.patientName}. Please send the message from your WhatsApp.`,
+        className: "bg-green-50 border-green-200"
+      });
+      
+    } catch (error) {
+      console.error('WhatsApp preparation error:', error);
+      toast({
+        title: "Message Preparation Failed",
+        description: error instanceof Error ? error.message : "Could not prepare WhatsApp message. Please try again.",
         variant: "destructive"
       });
     } finally {
@@ -955,26 +978,39 @@ const Admin = () => {
                                 </Button>
                               )}
                               
-                              {appointment.phone && (
+                              {/* Send Confirmation Message Button - Only for confirmed appointments */}
+                              {appointment.status === 'confirmed' && appointment.phone && (
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  className={`w-full text-xs ${appointment.whatsappSent ? 'text-green-600' : 'text-blue-600'}`}
+                                  className={`w-full text-xs font-medium ${
+                                    appointment.whatsappSent 
+                                      ? 'bg-green-50 hover:bg-green-100 text-green-700 border-green-200 shadow-sm' 
+                                      : 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200 shadow-sm hover:shadow-md'
+                                  }`}
                                   onClick={() => handleSendWhatsAppMessage(appointment)}
                                   disabled={sendingWhatsApp[appointment.id || ''] || false}
+                                  title={appointment.whatsappSent ? 'Message already sent - click to resend' : 'Send professional confirmation message via WhatsApp'}
                                 >
                                   {sendingWhatsApp[appointment.id || ''] ? (
                                     <>
                                       <div className="h-3 w-3 border-t-2 border-blue-600 rounded-full animate-spin mr-2"></div>
-                                      Sending...
+                                      Preparing...
                                     </>
                                   ) : (
                                     <>
                                       <Send className="h-3 w-3 mr-1" /> 
-                                      {appointment.whatsappSent ? 'Resend WhatsApp' : 'Send WhatsApp'}
+                                      {appointment.whatsappSent ? 'Resend Message' : 'Send Confirmation Message'}
                                     </>
                                   )}
                                 </Button>
+                              )}
+                              
+                              {/* Show message sent status */}
+                              {appointment.whatsappSent && (
+                                <div className="text-xs text-green-600 text-center py-1 bg-green-50 rounded-md border border-green-200">
+                                  ✓ Message sent {appointment.lastCommunication && new Date(appointment.lastCommunication).toLocaleDateString('en-IN')}
+                                </div>
                               )}
                             </div>
                           </TableCell>
