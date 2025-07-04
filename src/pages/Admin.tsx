@@ -76,8 +76,7 @@ import { Calendar as CalendarIcon } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 
-// New imports for date picker
-import { DayPicker } from 'react-day-picker';
+// Date formatting imports
 import { parseISO, formatISO } from 'date-fns';
 
 // Update the appointment interface to include source and whatsapp fields
@@ -675,7 +674,7 @@ const Admin = () => {
     <div className="container mx-auto px-4 py-10 mt-20">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold">Admin Dashboard</h1>
-        <Button onClick={handleLogout} variant="outline" className="flex items-center gap-2">
+        <Button onClick={handleLogout} variant={"outline"} className="flex items-center gap-2">
           <LogOut className="h-4 w-4" />
           <span>Logout</span>
         </Button>
@@ -765,7 +764,7 @@ const Admin = () => {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <Badge className={getStatusBadge(patient.status)}>
+                            <Badge variant="outline" className={getStatusBadge(patient.status)}>
                               {patient.status}
                             </Badge>
                           </TableCell>
@@ -918,19 +917,19 @@ const Admin = () => {
                             <div className="text-xs text-gray-500">{appointment.time}</div>
                           </TableCell>
                           <TableCell>
-                            <Badge className={getStatusBadge(appointment.status)}>
-                              {appointment.status}
+                            <Badge variant="outline" className={getStatusBadge(appointment.status)}>
+                              <span>{appointment.status}</span>
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            <Badge className={`${
+                            <div className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
                               appointment.source === 'website' ? 'bg-blue-100 text-blue-800 border-blue-200' :
                               appointment.source === 'office' ? 'bg-green-100 text-green-800 border-green-200' :
                               appointment.source === 'phone' ? 'bg-purple-100 text-purple-800 border-purple-200' :
                               'bg-gray-100 text-gray-800 border-gray-200'
                             }`}>
                               {appointment.source || 'unknown'}
-                            </Badge>
+                            </div>
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-col space-y-2">
@@ -1071,8 +1070,8 @@ const Admin = () => {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <Badge className={getStatusBadge(message.status)}>
-                              {message.status}
+                            <Badge variant="outline" className={getStatusBadge(message.status)}>
+                              <span>{message.status}</span>
                             </Badge>
                           </TableCell>
                           <TableCell>
@@ -1113,7 +1112,9 @@ const Admin = () => {
                 </div>
                 <div className="ml-4">
                   <h3 className="text-xl font-semibold">{currentPatient.name}</h3>
-                  <Badge className={getStatusBadge(currentPatient.status)}>{currentPatient.status}</Badge>
+                  <div className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 ${getStatusBadge(currentPatient.status)}`}>
+                    {currentPatient.status}
+                  </div>
                 </div>
               </div>
               

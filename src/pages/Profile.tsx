@@ -367,15 +367,15 @@ const Profile = () => {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'confirmed':
-        return <Badge className="bg-green-100 text-green-800 border-green-200">Confirmed</Badge>;
+        return <div className="bg-green-100 text-green-800 border-green-200 rounded-full px-2 py-1 text-xs font-semibold">Confirmed</div>;
       case 'pending':
-        return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200">Pending</Badge>;
+        return <div className="bg-yellow-100 text-yellow-800 border-yellow-200 rounded-full px-2 py-1 text-xs font-semibold">Pending</div>;
       case 'completed':
-        return <Badge className="bg-blue-100 text-blue-800 border-blue-200">Completed</Badge>;
+        return <div className="bg-blue-100 text-blue-800 border-blue-200 rounded-full px-2 py-1 text-xs font-semibold">Completed</div>;
       case 'cancelled':
-        return <Badge className="bg-red-100 text-red-800 border-red-200">Cancelled</Badge>;
+        return <div className="bg-red-100 text-red-800 border-red-200 rounded-full px-2 py-1 text-xs font-semibold">Cancelled</div>;
       default:
-        return <Badge className="bg-gray-100 text-gray-800 border-gray-200">{status}</Badge>;
+        return <div className="bg-gray-100 text-gray-800 border-gray-200 rounded-full px-2 py-1 text-xs font-semibold">{status}</div>;
     }
   };
   
@@ -383,17 +383,18 @@ const Profile = () => {
   const getBillingBadge = (status: BillingStatus) => {
     switch (status) {
       case 'paid':
-        return <Badge className="bg-green-100 text-green-800 border-green-200">Paid</Badge>;
+        return <div className="bg-green-100 text-green-800 border-green-200 rounded-full px-2 py-1 text-xs font-semibold">Paid</div>;
       case 'pending':
-        return <Badge className="bg-red-100 text-red-800 border-red-200">Payment Due</Badge>;
+        return <div className="bg-red-100 text-red-800 border-red-200 rounded-full px-2 py-1 text-xs font-semibold">Payment Due</div>;
       case 'waived':
-        return <Badge className="bg-purple-100 text-purple-800 border-purple-200">Waived</Badge>;
+        return <div className="bg-purple-100 text-purple-800 border-purple-200 rounded-full px-2 py-1 text-xs font-semibold">Waived</div>;
       case 'not_applicable':
       default:
-        return <Badge className="bg-gray-100 text-gray-800 border-gray-200">N/A</Badge>;
+        return <div className="bg-gray-100 text-gray-800 border-gray-200 rounded-full px-2 py-1 text-xs font-semibold">N/A</div>;
     }
   };
 
+  
   // Add setup instructions dialog component inside your component
   const SetupInstructionsDialog = () => (
     <Dialog open={setupInstructionsOpen} onOpenChange={setSetupInstructionsOpen}>
