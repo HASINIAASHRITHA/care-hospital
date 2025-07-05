@@ -22,8 +22,6 @@ import {
   MapPin, 
   CreditCard, 
   CheckCircle, 
-  XCircle, 
-  AlertTriangle, 
   DollarSign, 
   Upload, 
   Send,
@@ -46,15 +44,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { format } from 'date-fns';
-import { z } from "zod";
 
 // Firebase auth imports
-import { getAuth, signInWithPhoneNumber, PhoneAuthProvider, ConfirmationResult, RecaptchaVerifier } from "firebase/auth";
+import { RecaptchaVerifier, ConfirmationResult } from "firebase/auth";
 import { sendOTP, createRecaptchaVerifier, clearRecaptchaVerifier } from "@/services/firebase";
 
 // Import the OTP input component
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
+import { useTheme } from "next-themes";
+import { Toaster as Sonner, toast } from "sonner";
+import * as ToastPrimitives from "@radix-ui/react-toast";
+import { twMerge } from "tailwind-merge";
+import { Slot } from "@radix-ui/react-slot";
+import { DayPicker } from "react-day-picker";
 
 // Define billing status types
 type BillingStatus = 'pending' | 'paid' | 'waived' | 'not_applicable';
@@ -85,9 +87,6 @@ const Profile = () => {
   const [userAppointments, setUserAppointments] = useState<AppointmentWithBilling[]>([]);
   const [userData, setUserData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isPaying, setIsPaying] = useState(false);
-  
-  // Payment dialog state
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<AppointmentWithBilling | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'upi' | 'card' | 'cash' | 'upload'>('upi');
@@ -100,7 +99,6 @@ const Profile = () => {
   const [verifyingOTP, setVerifyingOTP] = useState(false);
   const [otpError, setOtpError] = useState<string | null>(null);
   const [recaptchaReady, setRecaptchaReady] = useState(false);
-  const [recaptchaVerified, setRecaptchaVerified] = useState(false);
   const [phoneAuthEnabled, setPhoneAuthEnabled] = useState(true);
   const [setupInstructionsOpen, setSetupInstructionsOpen] = useState(false);
   
@@ -293,19 +291,6 @@ const Profile = () => {
     ).length;
   };
 
-  const getTotalPendingAmount = () => {
-    // Check if userAppointments exists and is an array before trying to use filter or reduce
-    if (!userAppointments || !Array.isArray(userAppointments)) return 0;
-    
-    return userAppointments
-      .filter(apt => 
-        apt && // Add null check for appointment object
-        apt.status === 'completed' && 
-        apt.billing && apt.billing.status === 'pending'
-      )
-      .reduce((total, apt) => total + (apt.billing?.amount || 0), 0);
-  };
-
   // Open payment dialog for an appointment
   const handleOpenPayment = (appointment: AppointmentWithBilling) => {
     setSelectedAppointment(appointment);
@@ -367,15 +352,15 @@ const Profile = () => {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'confirmed':
-        return <div className="bg-green-100 text-green-800 border-green-200 rounded-full px-2 py-1 text-xs font-semibold">Confirmed</div>;
+        return <Badge className="bg-green-100 text-green-800 border-green-200">Confirmed</Badge>;
       case 'pending':
-        return <div className="bg-yellow-100 text-yellow-800 border-yellow-200 rounded-full px-2 py-1 text-xs font-semibold">Pending</div>;
+        return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200">Pending</Badge>;
       case 'completed':
-        return <div className="bg-blue-100 text-blue-800 border-blue-200 rounded-full px-2 py-1 text-xs font-semibold">Completed</div>;
+        return <Badge className="bg-blue-100 text-blue-800 border-blue-200">Completed</Badge>;
       case 'cancelled':
-        return <div className="bg-red-100 text-red-800 border-red-200 rounded-full px-2 py-1 text-xs font-semibold">Cancelled</div>;
+        return <Badge className="bg-red-100 text-red-800 border-red-200">Cancelled</Badge>;
       default:
-        return <div className="bg-gray-100 text-gray-800 border-gray-200 rounded-full px-2 py-1 text-xs font-semibold">{status}</div>;
+        return <Badge className="bg-gray-100 text-gray-800 border-gray-200">{status}</Badge>;
     }
   };
   
@@ -383,14 +368,14 @@ const Profile = () => {
   const getBillingBadge = (status: BillingStatus) => {
     switch (status) {
       case 'paid':
-        return <div className="bg-green-100 text-green-800 border-green-200 rounded-full px-2 py-1 text-xs font-semibold">Paid</div>;
+        return <Badge className="bg-green-100 text-green-800 border-green-200">Paid</Badge>;
       case 'pending':
-        return <div className="bg-red-100 text-red-800 border-red-200 rounded-full px-2 py-1 text-xs font-semibold">Payment Due</div>;
+        return <Badge className="bg-red-100 text-red-800 border-red-200">Payment Due</Badge>;
       case 'waived':
-        return <div className="bg-purple-100 text-purple-800 border-purple-200 rounded-full px-2 py-1 text-xs font-semibold">Waived</div>;
+        return <Badge className="bg-purple-100 text-purple-800 border-purple-200">Waived</Badge>;
       case 'not_applicable':
       default:
-        return <div className="bg-gray-100 text-gray-800 border-gray-200 rounded-full px-2 py-1 text-xs font-semibold">N/A</div>;
+        return <Badge className="bg-gray-100 text-gray-800 border-gray-200">N/A</Badge>;
     }
   };
 
@@ -600,7 +585,7 @@ const Profile = () => {
                           <InputOTP 
                             maxLength={6}
                             value={loginData.otp}
-                            onChange={(value) => {
+                            onChange={(value: string) => {
                               setLoginData({...loginData, otp: value});
                               setOtpError(null);
                             }}
@@ -1209,7 +1194,6 @@ const Profile = () => {
     <Dialog open={profileDialogOpen} onOpenChange={setProfileDialogOpen}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>{userData ? "Update Profile" : "Complete Your Profile"}</DialogTitle>
           <DialogDescription>
             {userData 
               ? "Update your personal information below." 
@@ -1260,7 +1244,7 @@ const Profile = () => {
                 <Label htmlFor="gender">Gender</Label>
                 <Select 
                   value={profileFormData.gender} 
-                  onValueChange={(value) => setProfileFormData({...profileFormData, gender: value})}
+                  onValueChange={(value: string) => setProfileFormData({...profileFormData, gender: value})}
                   disabled={isSubmittingProfile}
                 >
                   <SelectTrigger id="gender" className="w-full">
@@ -1363,18 +1347,15 @@ interface AppointmentMessage {
 }
 
 // Define the APIResponse interface
-interface APIResponse {
-  success: boolean;
-  message: string;
-  data?: any;
-}
+// (Removed unused APIResponse interface)
 
-export const sendWhatsAppMessage = async (appointmentData: AppointmentMessage) => {
-  // ...implementation...
-  // Uses Twilio WhatsApp API or simulates WhatsApp API for sending messages
+export const sendWhatsAppMessage = async (_appointmentData: AppointmentMessage) => {
+	// ...existing code...
 };
 
-const simulateWhatsAppAPI = async (phone: string, message: string): Promise<APIResponse> => {
-  // Simulates sending a WhatsApp message
-  return { success: true, message: "Message sent successfully" };
-};
+import * as LabelPrimitive from "@radix-ui/react-label";
+import * as SelectPrimitive from "@radix-ui/react-select";
+import * as SeparatorPrimitive from "@radix-ui/react-separator";
+import * as TabsPrimitive from "@radix-ui/react-tabs";
+import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog"
+
