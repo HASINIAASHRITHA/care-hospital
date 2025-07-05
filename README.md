@@ -84,3 +84,21 @@ You can deploy this project using services like Vercel, Netlify, or any other ho
 ## Connecting a custom domain
 
 You can connect a custom domain through your chosen hosting provider's domain management settings.
+
+## Troubleshooting
+
+### Vite/Rollup cannot resolve import "@tanstack/react-query"
+
+If you see an error like:
+
+```
+Rollup failed to resolve import "@tanstack/react-query"
+```
+
+Make sure you have installed `@tanstack/react-query` in this project directory:
+
+```sh
+npm install @tanstack/react-query
+```
+
+Then try building again.
